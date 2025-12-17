@@ -2,7 +2,10 @@
 import { supabase } from './src/supabaseClient.js';
 
 // Global State
-let currentMonth = '2026-01'; // Default to Jan 2026
+const now = new Date();
+const year = now.getFullYear();
+const month = String(now.getMonth() + 1).padStart(2, '0');
+let currentMonth = `${year}-${month}`;
 const MAX_MEMBERS = 300;
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -10,7 +13,6 @@ document.addEventListener('DOMContentLoaded', () => {
         document.body.innerHTML = `
             <div style="display:flex; justify-content:center; align-items:center; height:100vh; flex-direction:column; background:#121212; color:white;">
                 <h1 style="color:#ff4444;">Configuración Faltante</h1>
-                <p>Por favor edita <code>src/config.js</code> y agrega tus credenciales de Supabase.</p>
                 <div style="margin-top:20px; padding:10px; background:#333; border-radius:4px;">
                     src/config.js
                 </div>
@@ -59,6 +61,9 @@ function updateMonthDisplays() {
     document.getElementById('current-month-display').textContent = monthName;
     document.getElementById('members-month-display').textContent = monthName;
     document.getElementById('th-month-display').textContent = monthName;
+    // Check if element exists before setting (safe check)
+    if (document.getElementById('payments-month-display'))
+        document.getElementById('payments-month-display').textContent = monthName;
 }
 
 function getMonthName(yyyy_mm) {
@@ -218,7 +223,7 @@ async function loadAnnualSummary() {
     const { data: allYearPayments, error } = await supabase
         .from('payments')
         .select('month_year, amount, member_id')
-        .like('month_year', '2026-%'); // Assuming all are 2026
+        .or('month_year.eq.2025-12,month_year.like.2026-%'); // Dec 2025 + All 2026
 
     if (error) {
         tbody.innerHTML = '<tr><td colspan="4">Error al cargar datos anuales</td></tr>';
@@ -227,7 +232,8 @@ async function loadAnnualSummary() {
 
     // Process data locally
     const statsByMonth = {};
-    // Init months
+    // Init months (Dec 2025 + 2026)
+    statsByMonth['2025-12'] = { income: 0, distinctMembers: new Set() };
     for (let i = 1; i <= 12; i++) {
         const m = `2026-${String(i).padStart(2, '0')}`;
         statsByMonth[m] = { income: 0, distinctMembers: new Set() };
@@ -509,8 +515,9 @@ async function loadPaymentsHistory() {
             amount,
             members (first_name, last_name)
         `)
-        .order('created_at', { ascending: false })
-        .limit(50);
+        .eq('month_year', currentMonth) // Filter by selected month
+        .order('created_at', { ascending: false });
+    // .limit(50); // Removed limit to see full month history
 
     if (error) {
         tbody.innerHTML = `<tr><td colspan="4">Error: ${error.message}</td></tr>`;
@@ -531,4 +538,130 @@ async function loadPaymentsHistory() {
         `;
         tbody.appendChild(tr);
     });
+}
+
+// --- Reports ---
+window.exportMonthlyReport = async () => {
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF();
+
+    // 1. Header
+    doc.setFontSize(22);
+    doc.text('AyD Funcional Gym', 14, 20);
+
+    doc.setFontSize(16);
+    doc.text(`Reporte Mensual: ${getMonthName(currentMonth)}`, 14, 30);
+
+    doc.setFontSize(11);
+    doc.text(`Fecha de emisión: ${new Date().toLocaleDateString()}`, 14, 38);
+
+    // 2. Summary Stats
+    // We can pull these from the DOM or recalculate. Recalculation is safer.
+    // Re-using logic from loadDashboard essentially
+    const { data: currentPayments } = await supabase
+        .from('payments')
+        .select('amount, member_id')
+        .eq('month_year', currentMonth);
+
+    const activeMemberIds = new Set(currentPayments?.map(p => p.member_id));
+    const activeCount = activeMemberIds.size;
+    let totalBalance = 0;
+    currentPayments?.forEach(p => totalBalance += parseFloat(p.amount));
+
+    const { count: totalSystemMembers } = await supabase
+        .from('members')
+        .select('*', { count: 'exact', head: true })
+        .eq('active', true);
+
+    const overdueCount = (totalSystemMembers || 0) - activeCount;
+
+    doc.setFillColor(240, 240, 240);
+    doc.rect(14, 45, 180, 25, 'F');
+
+    doc.setTextColor(0, 0, 0);
+    doc.setFontSize(12);
+    doc.text('Resumen Financiero', 20, 55);
+
+    doc.setFontSize(10);
+    doc.text(`Ingresos: $${totalBalance.toLocaleString()}`, 20, 63);
+    doc.text(`Alumnos Activos: ${activeCount}`, 90, 63);
+    doc.text(`Vencimientos: ${overdueCount}`, 150, 63);
+
+    // 3. Detail Table (Payments)
+    // Let's list the members who paid this month
+    const { data: paymentsDetail } = await supabase
+        .from('payments')
+        .select(`
+            created_at,
+            amount,
+            members (first_name, last_name, contact)
+        `)
+        .eq('month_year', currentMonth)
+        .order('created_at', { ascending: false });
+
+    const tableData = paymentsDetail.map(p => [
+        new Date(p.created_at).toLocaleDateString(),
+        p.members ? `${p.members.first_name} ${p.members.last_name}` : 'Desconocido',
+        p.members ? p.members.contact : '-',
+        `$${p.amount}`
+    ]);
+
+    doc.autoTable({
+        startY: 80,
+        head: [['Fecha', 'Alumno', 'Contacto', 'Monto']],
+        body: tableData,
+        theme: 'grid',
+        headStyles: { fillColor: [255, 68, 68] }, // Match red theme roughly
+        styles: { fontSize: 10 }
+    });
+
+    const finalY = doc.lastAutoTable.finalY + 10;
+
+    doc.text('*** Fin del Reporte ***', 14, finalY);
+
+    // Save
+    doc.save(`Reporte_AyD_${currentMonth}.pdf`);
+};
+
+window.exportPaymentsListPDF = async () => {
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF();
+
+    doc.setFontSize(18);
+    doc.text('AyD Funcional Gym', 14, 20);
+    doc.setFontSize(14);
+    doc.text(`Historial de Pagos: ${getMonthName(currentMonth)}`, 14, 30);
+
+    // Fetch filtered data
+    const { data: payments } = await supabase
+        .from('payments')
+        .select(`
+            created_at,
+            month_year,
+            amount,
+            members (first_name, last_name)
+        `)
+        .eq('month_year', currentMonth)
+        .order('created_at', { ascending: false });
+
+    if (!payments || payments.length === 0) {
+        ui.alert('No hay pagos para exportar en este mes.', 'info');
+        return;
+    }
+
+    const tableData = payments.map(p => [
+        new Date(p.created_at).toLocaleDateString(),
+        p.members ? `${p.members.first_name} ${p.members.last_name}` : 'Desconocido',
+        p.month_year,
+        `$${p.amount}`
+    ]);
+
+    doc.autoTable({
+        startY: 40,
+        head: [['Fecha', 'Alumno', 'Mes Pagado', 'Monto']],
+        body: tableData,
+        theme: 'striped'
+    });
+
+    doc.save(`Pagos_AyD_${currentMonth}.pdf`);
 }

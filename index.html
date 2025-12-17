@@ -40,6 +40,7 @@
             <div class="month-selector-container">
                 <label for="global-month-select">Mes de Operación</label>
                 <select id="global-month-select" onchange="changeGlobalMonth()">
+                    <option value="2025-12">Diciembre 2025</option>
                     <option value="2026-01">Enero 2026</option>
                     <option value="2026-02">Febrero 2026</option>
                     <option value="2026-03">Marzo 2026</option>
@@ -63,6 +64,7 @@
                 <!-- Header with Month Display -->
                 <div class="section-header">
                     <h2>Panel General - <span id="current-month-display">Enero 2026</span></h2>
+                    <button class="btn-primary" onclick="exportMonthlyReport()">📄 Exportar PDF</button>
                 </div>
 
                 <div class="stats-grid">
@@ -83,7 +85,7 @@
 
                 <!-- Annual Summary Table -->
                 <div class="annual-summary mt-4">
-                    <h3>Balance Anual 2026</h3>
+                    <h3>Balance Mensual</h3>
                     <div class="table-container small-table">
                         <table>
                             <thead>
@@ -131,7 +133,10 @@
 
             <!-- Payments Section (Historial) -->
             <section id="payments" class="content-section hidden-section">
-                <h2>Historial de Pagos</h2>
+                <div class="header-row">
+                    <h2>Historial de Pagos - <span id="payments-month-display">Enero 2026</span></h2>
+                    <button class="btn-primary" onclick="exportPaymentsListPDF()">📄 Exportar Lista</button>
+                </div>
                 <div class="table-container">
                     <table>
                         <thead>
@@ -176,6 +181,7 @@
                 <input type="hidden" id="payment-member-id">
                 <label>Mes a pagar</label>
                 <select id="payment-month" required>
+                    <option value="2025-12">Diciembre 2025</option>
                     <option value="2026-01">Enero 2026</option>
                     <option value="2026-02">Febrero 2026</option>
                     <option value="2026-03">Marzo 2026</option>
@@ -197,6 +203,10 @@
 
     <!-- Custom Alert Container -->
     <div id="alert-container"></div>
+
+    <!-- PDF Libraries -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.29/jspdf.plugin.autotable.min.js"></script>
 
     <script type="module" src="app.js"></script>
 </body>
