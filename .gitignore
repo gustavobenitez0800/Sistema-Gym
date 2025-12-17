@@ -1,0 +1,17 @@
+# Dependencies
+node_modules/
+
+# OS Files
+Thumbs.db
+.DS_Store
+
+# Editor
+.vscode/
+.idea/
+
+# Supabase Secrets
+src/config.js
+
+# Build / Output
+dist/
+out/

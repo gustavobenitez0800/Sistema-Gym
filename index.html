@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AyD Funcional Gym - Gestión 2026</title>
+    <link rel="icon" type="image/x-icon" href="./img/Logo.png">
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+
+    <!-- Login Screen -->
+    <div id="login-screen" class="screen active">
+        <div class="login-card">
+            <h1>AyD Funcional Gym</h1>
+            <p>Acceso al Sistema</p>
+            <form id="login-form">
+                <input type="email" id="email" placeholder="Email" required>
+                <input type="password" id="password" placeholder="Contraseña" required>
+                <button type="submit">Ingresar</button>
+            </form>
+            <p id="login-error" class="error-msg"></p>
+        </div>
+    </div>
+
+    <!-- Main App Layout (Hidden by default) -->
+    <div id="app-layout" class="screen hidden">
+        <nav class="sidebar">
+            <div class="sidebar-header">
+                <img src="img/Logo.png" alt="Logo" class="sidebar-logo">
+                <h2>AyD Gym</h2>
+            </div>
+            <ul>
+                <li onclick="showSection('dashboard')" class="active-nav">Dashboard</li>
+                <li onclick="showSection('members')">Alumnos</li>
+                <li onclick="showSection('payments')">Pagos</li>
+            </ul>
+            <div class="month-selector-container">
+                <label for="global-month-select">Mes de Operación</label>
+                <select id="global-month-select" onchange="changeGlobalMonth()">
+                    <option value="2026-01">Enero 2026</option>
+                    <option value="2026-02">Febrero 2026</option>
+                    <option value="2026-03">Marzo 2026</option>
+                    <option value="2026-04">Abril 2026</option>
+                    <option value="2026-05">Mayo 2026</option>
+                    <option value="2026-06">Junio 2026</option>
+                    <option value="2026-07">Julio 2026</option>
+                    <option value="2026-08">Agosto 2026</option>
+                    <option value="2026-09">Septiembre 2026</option>
+                    <option value="2026-10">Octubre 2026</option>
+                    <option value="2026-11">Noviembre 2026</option>
+                    <option value="2026-12">Diciembre 2026</option>
+                </select>
+            </div>
+            <button id="logout-btn" class="logout-btn">Cerrar Sesión</button>
+        </nav>
+
+        <main class="content">
+            <!-- Dashboard Section -->
+            <section id="dashboard" class="content-section active-section">
+                <!-- Header with Month Display -->
+                <div class="section-header">
+                    <h2>Panel General - <span id="current-month-display">Enero 2026</span></h2>
+                </div>
+
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <h3>Alumnos Activos</h3>
+                        <p id="total-members">0 / 300</p>
+                        <small id="growth-stat">-- vs mes anterior</small>
+                    </div>
+                    <div class="stat-card">
+                        <h3>Balance Mensual</h3>
+                        <p id="monthly-balance">$0</p>
+                    </div>
+                    <div class="stat-card">
+                        <h3>Vencimientos</h3>
+                        <p id="overdue-count" class="text-danger">0</p>
+                    </div>
+                </div>
+
+                <!-- Annual Summary Table -->
+                <div class="annual-summary mt-4">
+                    <h3>Balance Anual 2026</h3>
+                    <div class="table-container small-table">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Mes</th>
+                                    <th>Alumnos Activos</th>
+                                    <th>Ingresos</th>
+                                    <th>Crecimiento</th>
+                                </tr>
+                            </thead>
+                            <tbody id="annual-stats-body">
+                                <!-- Loaded via JS -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Members Section -->
+            <section id="members" class="content-section hidden-section">
+                <div class="header-row">
+                    <h2>Gestión de Alumnos - <span id="members-month-display">Enero 2026</span></h2>
+                    <button class="btn-primary" onclick="openAddMemberModal()">+ Nuevo Alumno</button>
+                </div>
+                <!-- Warning if limit reached -->
+                <div id="limit-warning" class="warning-banner hidden">¡Límite de 300 alumnos alcanzado!</div>
+
+                <div class="table-container">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Nombre</th>
+                                <th>Apellido</th>
+                                <th>Contacto</th>
+                                <th>Cuota (<span id="th-month-display">Mes Actual</span>)</th>
+                                <th>Acciones</th>
+                            </tr>
+                        </thead>
+                        <tbody id="members-table-body">
+                            <!-- Rows loaded via JS -->
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+            <!-- Payments Section (Historial) -->
+            <section id="payments" class="content-section hidden-section">
+                <h2>Historial de Pagos</h2>
+                <div class="table-container">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Fecha</th>
+                                <th>Alumno</th>
+                                <th>Mes Pagado</th>
+                                <th>Monto</th>
+                            </tr>
+                        </thead>
+                        <tbody id="payments-history-body">
+                            <!-- Rows loaded via JS -->
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <!-- Add Member Modal -->
+    <div id="add-member-modal" class="modal hidden">
+        <div class="modal-content">
+            <span class="close-btn" onclick="closeAddMemberModal()">&times;</span>
+            <h2 id="modal-title">Nuevo Alumno</h2>
+            <p id="modal-limit-msg" class="text-danger hidden">No se pueden agregar más alumnos.</p>
+            <form id="add-member-form">
+                <input type="text" id="new-name" placeholder="Nombre" required>
+                <input type="text" id="new-lastname" placeholder="Apellido" required>
+                <input type="text" id="new-contact" placeholder="Contacto (Tel/Email)" required>
+                <button type="submit" id="save-member-btn">Guardar</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Record Payment Modal -->
+    <div id="payment-modal" class="modal hidden">
+        <div class="modal-content">
+            <span class="close-btn" onclick="closePaymentModal()">&times;</span>
+            <h2>Registrar Pago</h2>
+            <h3 id="payment-member-name">Alumno</h3>
+            <form id="payment-form">
+                <input type="hidden" id="payment-member-id">
+                <label>Mes a pagar</label>
+                <select id="payment-month" required>
+                    <option value="2026-01">Enero 2026</option>
+                    <option value="2026-02">Febrero 2026</option>
+                    <option value="2026-03">Marzo 2026</option>
+                    <option value="2026-04">Abril 2026</option>
+                    <option value="2026-05">Mayo 2026</option>
+                    <option value="2026-06">Junio 2026</option>
+                    <option value="2026-07">Julio 2026</option>
+                    <option value="2026-08">Agosto 2026</option>
+                    <option value="2026-09">Septiembre 2026</option>
+                    <option value="2026-10">Octubre 2026</option>
+                    <option value="2026-11">Noviembre 2026</option>
+                    <option value="2026-12">Diciembre 2026</option>
+                </select>
+                <input type="number" id="payment-amount" placeholder="Monto" required>
+                <button type="submit">Registrar Pago</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Custom Alert Container -->
+    <div id="alert-container"></div>
+
+    <script type="module" src="app.js"></script>
+</body>
+
+</html>
