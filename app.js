@@ -2,11 +2,14 @@
 import { supabase } from './src/supabaseClient.js';
 
 // Global State
-const now = new Date();
-const year = now.getFullYear();
-const month = String(now.getMonth() + 1).padStart(2, '0');
-let currentMonth = `${year}-${month}`;
+let currentDate = new Date(); // Source of truth for navigation
+// Init to current month effectively
+currentDate.setDate(1);
 const MAX_MEMBERS = 300;
+let fileCache = [];
+let currentMembers = []; // Cache for search
+let currentFilter = 'all'; // Filter state: all, paid, overdue
+
 
 document.addEventListener('DOMContentLoaded', () => {
     if (!supabase) {
@@ -23,8 +26,7 @@ document.addEventListener('DOMContentLoaded', () => {
     checkSession();
     setupEventListeners();
 
-    // Set initial dropdown value
-    document.getElementById('global-month-select').value = currentMonth;
+    // Set initial display
     updateMonthDisplays();
 });
 
@@ -36,28 +38,57 @@ function setupEventListeners() {
     // Member Management
     document.getElementById('add-member-form').addEventListener('submit', handleAddMember);
 
-    // Payment
     document.getElementById('payment-form').addEventListener('submit', handleAddPayment);
-    // Auto-select global month in modal
+    // Notes
+    document.getElementById('notes-form').addEventListener('submit', handleSaveNotes);
+
+    // Search
+    document.getElementById('search-member-input').addEventListener('input', (e) => {
+        const term = e.target.value.toLowerCase();
+        applyMemberFilters(term);
+    });
 }
 
 // --- Global Month Logic ---
-window.changeGlobalMonth = function () {
-    const select = document.getElementById('global-month-select');
-    currentMonth = select.value;
+window.changeGlobalMonth = function (offset) {
+    // Modify currentDate by offset months
+    currentDate.setMonth(currentDate.getMonth() + offset);
     updateMonthDisplays();
 
     // Refresh current view
     const dashboardActive = document.getElementById('dashboard').classList.contains('active-section');
     const membersActive = document.getElementById('members').classList.contains('active-section');
+    const paymentsActive = document.getElementById('payments').classList.contains('active-section');
 
     if (dashboardActive) loadDashboard();
     // Always refresh members if we might switch to it, but specifically if active
     if (membersActive) loadMembers();
+    if (paymentsActive) loadPaymentsHistory();
+}
+
+// Helpers
+function transformDate(dateObj) {
+    const year = dateObj.getFullYear();
+    const month = String(dateObj.getMonth() + 1).padStart(2, '0');
+    return `${year}-${month}`;
+}
+
+function getCurrentMonthISO() {
+    return transformDate(currentDate);
+}
+
+function formatCurrency(amount) {
+    return new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS' }).format(amount);
 }
 
 function updateMonthDisplays() {
-    const monthName = getMonthName(currentMonth);
+    const isoDate = getCurrentMonthISO();
+    const monthName = getMonthName(isoDate);
+
+    // Sidebar Label
+    document.getElementById('global-month-label').textContent = monthName;
+
+    // Headers
     document.getElementById('current-month-display').textContent = monthName;
     document.getElementById('members-month-display').textContent = monthName;
     document.getElementById('th-month-display').textContent = monthName;
@@ -161,7 +192,7 @@ async function loadDashboard() {
     const { data: currentPayments, error: currErr } = await supabase
         .from('payments')
         .select('amount, member_id')
-        .eq('month_year', currentMonth);
+        .eq('month_year', getCurrentMonthISO());
 
     if (currErr) return;
 
@@ -175,10 +206,10 @@ async function loadDashboard() {
 
     // Update UI Stats
     document.getElementById('total-members').textContent = `${activeCount} Pagos`;
-    document.getElementById('monthly-balance').textContent = `$${totalBalance.toLocaleString()}`;
+    document.getElementById('monthly-balance').textContent = formatCurrency(totalBalance);
 
     // 2. Growth Logic (Active vs Previous Month)
-    const prevMonth = getPreviousMonth(currentMonth);
+    const prevMonth = getPreviousMonth(getCurrentMonthISO());
     const { data: prevPayments } = await supabase
         .from('payments')
         .select('member_id')
@@ -217,13 +248,19 @@ async function loadDashboard() {
 
 async function loadAnnualSummary() {
     const tbody = document.getElementById('annual-stats-body');
-    tbody.innerHTML = '<tr><td colspan="4">Cargando datos anuales...</td></tr>';
+    const selectedYear = currentDate.getFullYear();
 
-    // We will do a single query for all 2026 payments to save requests
+    // Update Header
+    document.querySelector('.annual-summary h3').textContent = `Balance Anual ${selectedYear}`;
+
+    tbody.innerHTML = '<tr><td colspan="4"><div class="spinner"></div></td></tr>';
+
+    // Fetch payments for the SELECTED YEAR
+    // We use a LIKE query for "YYYY-%"
     const { data: allYearPayments, error } = await supabase
         .from('payments')
         .select('month_year, amount, member_id')
-        .or('month_year.eq.2025-12,month_year.like.2026-%'); // Dec 2025 + All 2026
+        .like('month_year', `${selectedYear}-%`);
 
     if (error) {
         tbody.innerHTML = '<tr><td colspan="4">Error al cargar datos anuales</td></tr>';
@@ -232,10 +269,9 @@ async function loadAnnualSummary() {
 
     // Process data locally
     const statsByMonth = {};
-    // Init months (Dec 2025 + 2026)
-    statsByMonth['2025-12'] = { income: 0, distinctMembers: new Set() };
+    // Init months 1-12 for selectedYear
     for (let i = 1; i <= 12; i++) {
-        const m = `2026-${String(i).padStart(2, '0')}`;
+        const m = `${selectedYear}-${String(i).padStart(2, '0')}`;
         statsByMonth[m] = { income: 0, distinctMembers: new Set() };
     }
 
@@ -247,22 +283,22 @@ async function loadAnnualSummary() {
     });
 
     tbody.innerHTML = '';
-    let prevCount = 0; // Carry over for growth calc annualy? Or just display logic. 
-    // Usually growth is vs prev month.
 
     const months = Object.keys(statsByMonth).sort();
+
     months.forEach((m, index) => {
         const income = statsByMonth[m].income;
         const count = statsByMonth[m].distinctMembers.size;
 
-        let growthText = "0%";
+        let growthText = "-";
         let growthClass = "";
 
         if (index > 0) {
             const prevM = months[index - 1];
             const prevC = statsByMonth[prevM].distinctMembers.size;
             if (prevC === 0) {
-                growthText = count > 0 ? "100%" : "0%";
+                // If prev was 0 and now we have, that's infinite growth technically, or 100%
+                growthText = count > 0 ? "Nuevo" : "-";
                 growthClass = count > 0 ? "text-success" : "";
             } else {
                 const diff = count - prevC;
@@ -272,23 +308,120 @@ async function loadAnnualSummary() {
             }
         }
 
-        // Only show months that have passed or are current? Or show all? User asked for 2026 Jan-Dec.
-        // We show all lines
+        // Feature: Click to navigate
         const tr = document.createElement('tr');
+        tr.style.cursor = 'pointer';
+        tr.title = `Ir a ${getMonthName(m)}`;
+        tr.onclick = () => {
+            // Calculate difference in months from current view to clicked month
+            const [tYear, tMonth] = m.split('-').map(Number);
+            const targetDate = new Date(tYear, tMonth - 1, 1);
+
+            // We can just set currentDate directly
+            currentDate = targetDate;
+            updateMonthDisplays();
+
+            // Refresh views
+            loadDashboard(); // This will re-trigger loadAnnualSummary but that's fine
+            loadMembers(); // Pre-load just in case
+        };
+
         tr.innerHTML = `
             <td>${getMonthName(m)}</td>
             <td>${count}</td>
-            <td>$${income.toLocaleString()}</td>
+            <td>${formatCurrency(income)}</td>
             <td class="${growthClass}">${growthText}</td>
         `;
+
+        // Highlight current month row
+        if (m === getCurrentMonthISO()) {
+            tr.style.background = 'rgba(255, 214, 0, 0.1)';
+            tr.style.borderLeft = '4px solid var(--primary)';
+        }
+
         tbody.appendChild(tr);
+    });
+
+    // --- RENDER CHART ---
+    renderIncomeChart(statsByMonth, months);
+}
+
+// Global Chart Instance to destroy before re-creating
+let incomeChartInstance = null;
+
+function renderIncomeChart(statsByMonth, sortedMonths) {
+    const ctx = document.getElementById('incomeChart').getContext('2d');
+
+    // Prepare Data
+    const labels = sortedMonths.map(m => {
+        const [y, monthIndex] = m.split('-');
+        const names = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"];
+        return names[parseInt(monthIndex) - 1]; // Short names
+    });
+
+    const dataPoints = sortedMonths.map(m => statsByMonth[m].income);
+
+    // Destroy prev instance
+    if (incomeChartInstance) {
+        incomeChartInstance.destroy();
+    }
+
+    // Gradient
+    const gradient = ctx.createLinearGradient(0, 0, 0, 400);
+    gradient.addColorStop(0, 'rgba(255, 214, 0, 0.8)'); // Gold active
+    gradient.addColorStop(1, 'rgba(255, 214, 0, 0.1)'); // Fade
+
+    incomeChartInstance = new Chart(ctx, {
+        type: 'bar',
+        data: {
+            labels: labels,
+            datasets: [{
+                label: 'Ingresos Mensuales ($)',
+                data: dataPoints,
+                backgroundColor: gradient,
+                borderColor: '#FFD700',
+                borderWidth: 1,
+                borderRadius: 4,
+                barPercentage: 0.6
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: { display: false },
+                tooltip: {
+                    backgroundColor: '#000',
+                    titleColor: '#FFD700',
+                    bodyColor: '#fff',
+                    borderColor: '#333',
+                    borderWidth: 1,
+                    callbacks: {
+                        label: function (context) {
+                            return formatCurrency(context.parsed.y);
+                        }
+                    }
+                }
+            },
+            scales: {
+                y: {
+                    beginAtZero: true,
+                    grid: { color: '#333' },
+                    ticks: { color: '#888' }
+                },
+                x: {
+                    grid: { display: false },
+                    ticks: { color: '#fff' }
+                }
+            }
+        }
     });
 }
 
 // --- Members ---
 async function loadMembers() {
     const tbody = document.getElementById('members-table-body');
-    tbody.innerHTML = '<tr><td colspan="5">Cargando...</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="5"><div class="spinner"></div></td></tr>';
 
     // Fetch Active Members
     const { data: members, error } = await supabase
@@ -302,22 +435,49 @@ async function loadMembers() {
         return;
     }
 
+    // Cache them
+    currentMembers = members;
+
+    // Load payments for status check
+    await loadMemberPaymentsStatus();
+
+    // Initial Render
+    renderMembersTable(currentMembers);
+
+    // Update Warning
+    const count = members.length;
+    if (count >= MAX_MEMBERS) {
+        document.getElementById('limit-warning').classList.remove('hidden');
+    } else {
+        document.getElementById('limit-warning').classList.add('hidden');
+    }
+}
+
+// Global set of paid IDs for the current month
+let paidMemberIds = new Set();
+
+async function loadMemberPaymentsStatus() {
     // Fetch Payments for SELECTED MONTH
     const { data: payments } = await supabase
         .from('payments')
         .select('member_id')
-        .eq('month_year', currentMonth);
+        .eq('month_year', getCurrentMonthISO());
 
-    const paidMemberIds = new Set(payments?.map(p => p.member_id));
+    paidMemberIds = new Set(payments?.map(p => p.member_id));
+}
 
+function renderMembersTable(membersToRender) {
+    const tbody = document.getElementById('members-table-body');
     tbody.innerHTML = '';
 
-    members.forEach(member => {
+    if (membersToRender.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="5" class="empty-state">No se encontraron alumnos registrados.</td></tr>';
+        return;
+    }
+
+    membersToRender.forEach(member => {
         const isPaid = paidMemberIds.has(member.id);
 
-        // Visual Logic
-        // If paid: Success text. If overdue: Red text on Name strings? Or just Status.
-        // Req: "Cuando está vencida se ve en rojo, así no se pasa ninguna" -> Resaltar apellido y nombre
         const isOverdue = !isPaid;
 
         const nameClass = isOverdue ? 'text-overdue' : '';
@@ -328,25 +488,76 @@ async function loadMembers() {
         const tr = document.createElement('tr');
         tr.className = rowClass;
 
+        const statusBadge = isPaid
+            ? '<span class="status-badge paid">Pagado</span>'
+            : '<span class="status-badge overdue">Vencido</span>';
+
+        // Escape helper (simple)
+        const safeNotes = member.notes ? member.notes.replace(/'/g, "\\'") : '';
+        const fullName = `${member.first_name} ${member.last_name}`;
+
         tr.innerHTML = `
             <td class="${nameClass}">${member.first_name}</td>
             <td class="${nameClass}">${member.last_name}</td>
             <td>${member.contact}</td>
-            <td class="${statusClass}"><strong>${statusText}</strong></td>
+            <td>${statusBadge}</td>
             <td>
-                <button class="action-btn" title="Pagar" onclick="openPaymentModal('${member.id}', '${member.first_name} ${member.last_name}')">💰</button>
+                <button class="action-btn" title="Pagar" onclick="openPaymentModal('${member.id}', '${fullName}')">💰</button>
+                <button class="action-btn" title="Observaciones Médicas" onclick="openNotesModal('${member.id}', '${fullName}', '${safeNotes}')">🩺</button>
                 <button class="action-btn btn-delete" title="Eliminar Alumno" onclick="deleteMember('${member.id}')">🗑️</button>
             </td>
         `;
         tbody.appendChild(tr);
     });
+}
 
-    // Update Warning
-    const count = members.length;
-    if (count >= MAX_MEMBERS) {
-        document.getElementById('limit-warning').classList.remove('hidden');
-    } else {
-        document.getElementById('limit-warning').classList.add('hidden');
+// Filter Members
+window.filterMembers = function (filter) {
+    currentFilter = filter;
+
+    // Update active button
+    document.querySelectorAll('.filter-btn').forEach(btn => {
+        btn.classList.remove('active');
+        if (btn.dataset.filter === filter) {
+            btn.classList.add('active');
+        }
+    });
+
+    // Apply filters
+    applyMemberFilters();
+}
+
+function applyMemberFilters(searchTerm = '') {
+    let filtered = currentMembers;
+
+    // Apply search filter
+    if (searchTerm) {
+        filtered = filtered.filter(m =>
+            m.first_name.toLowerCase().includes(searchTerm) ||
+            m.last_name.toLowerCase().includes(searchTerm) ||
+            m.contact.toLowerCase().includes(searchTerm)
+        );
+    }
+
+    // Apply status filter
+    if (currentFilter === 'paid') {
+        filtered = filtered.filter(m => paidMemberIds.has(m.id));
+    } else if (currentFilter === 'overdue') {
+        filtered = filtered.filter(m => !paidMemberIds.has(m.id));
+    }
+
+    renderMembersTable(filtered);
+
+    // Update member count badge
+    const totalCount = currentMembers.length;
+    const filteredCount = filtered.length;
+    const badge = document.getElementById('member-count-badge');
+    if (badge) {
+        if (currentFilter === 'all' && !searchTerm) {
+            badge.textContent = `${totalCount} alumnos`;
+        } else {
+            badge.textContent = `${filteredCount} de ${totalCount} alumnos`;
+        }
     }
 }
 
@@ -474,8 +685,36 @@ window.openPaymentModal = (id, name) => {
     document.getElementById('payment-member-id').value = id;
     document.getElementById('payment-member-name').textContent = name;
     document.getElementById('payment-modal').classList.remove('hidden');
-    document.getElementById('payment-month').value = currentMonth;
+
+    // Generate Dynamic Month Options Strict
+    generatePaymentMonthOptions();
+
+    // Set default to current iso selection or real current month
+    // Usually user wants to pay for *current selected month* or *real current month*?
+    // Let's default to the *global view month* for convenience.
+    document.getElementById('payment-month').value = getCurrentMonthISO();
 };
+
+function generatePaymentMonthOptions() {
+    const select = document.getElementById('payment-month');
+    select.innerHTML = '';
+
+    // Range: Last 6 months + Next 12 months from TODAY
+    const now = new Date();
+    // Start 6 months ago
+    const start = new Date(now.getFullYear(), now.getMonth() - 6, 1);
+
+    for (let i = 0; i < 18; i++) {
+        const d = new Date(start.getFullYear(), start.getMonth() + i, 1);
+        const iso = transformDate(d);
+        const name = getMonthName(iso); // e.g., "Enero 2026"
+
+        const option = document.createElement('option');
+        option.value = iso;
+        option.textContent = name;
+        select.appendChild(option);
+    }
+}
 
 window.closePaymentModal = () => {
     document.getElementById('payment-modal').classList.add('hidden');
@@ -502,10 +741,62 @@ async function handleAddPayment(e) {
     }
 }
 
+// --- Medical Notes ---
+window.openNotesModal = (id, name, currentNotes) => {
+    document.getElementById('notes-member-id').value = id;
+    document.getElementById('notes-member-name').textContent = name;
+    // Decode if needed or just use as is. The onclick replacement might struggle with newlines.
+    // Ideally we fetch fresh notes to avoid sync issues, but passing is faster for UI.
+    // Let's actually fetch to be safe and clean.
+    fetchAndShowNotes(id, name);
+};
+
+window.closeNotesModal = () => {
+    document.getElementById('notes-modal').classList.add('hidden');
+};
+
+async function fetchAndShowNotes(id, name) {
+    document.getElementById('notes-member-id').value = id;
+    document.getElementById('notes-member-name').textContent = name;
+    document.getElementById('member-notes').value = "Cargando...";
+    document.getElementById('notes-modal').classList.remove('hidden');
+
+    const { data, error } = await supabase
+        .from('members')
+        .select('notes')
+        .eq('id', id)
+        .single();
+
+    if (!error && data) {
+        document.getElementById('member-notes').value = data.notes || "";
+    } else {
+        document.getElementById('member-notes').value = "";
+    }
+}
+
+async function handleSaveNotes(e) {
+    e.preventDefault();
+    const id = document.getElementById('notes-member-id').value;
+    const notes = document.getElementById('member-notes').value;
+
+    const { error } = await supabase
+        .from('members')
+        .update({ notes: notes })
+        .eq('id', id);
+
+    if (error) {
+        ui.alert('Error al guardar notas: ' + error.message, 'error');
+    } else {
+        closeNotesModal();
+        ui.alert('Observaciones guardadas.', 'success');
+        loadMembers(); // Refresh to update the onclick attribute if we were using it, though we switched to fetch.
+    }
+}
+
 // --- History ---
 async function loadPaymentsHistory() {
     const tbody = document.getElementById('payments-history-body');
-    tbody.innerHTML = '<tr><td colspan="4">Cargando...</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="4"><div class="spinner"></div></td></tr>';
 
     const { data: payments, error } = await supabase
         .from('payments')
@@ -513,20 +804,34 @@ async function loadPaymentsHistory() {
             created_at,
             month_year,
             amount,
+            payment_method,
             members (first_name, last_name)
         `)
-        .eq('month_year', currentMonth) // Filter by selected month
+        .eq('month_year', getCurrentMonthISO()) // Filter by selected month
         .order('created_at', { ascending: false });
-    // .limit(50); // Removed limit to see full month history
 
     if (error) {
         tbody.innerHTML = `<tr><td colspan="4">Error: ${error.message}</td></tr>`;
         return;
     }
 
+    // Calculate summary
+    let totalAmount = 0;
+    payments.forEach(p => totalAmount += parseFloat(p.amount));
+
+    // Update summary card
+    document.getElementById('payments-total').textContent = formatCurrency(totalAmount);
+    document.getElementById('payments-count').textContent = payments.length;
+
     tbody.innerHTML = '';
+
+    if (payments.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="4" class="empty-state">No hay pagos registrados en este mes.</td></tr>';
+        return;
+    }
+
     payments.forEach(p => {
-        const date = new Date(p.created_at).toLocaleDateString();
+        const date = formatDate(p.created_at);
         const memberName = p.members ? `${p.members.first_name} ${p.members.last_name}` : 'Alumno Eliminado/Desconocido';
 
         const tr = document.createElement('tr');
@@ -534,134 +839,79 @@ async function loadPaymentsHistory() {
             <td>${date}</td>
             <td>${memberName}</td>
             <td>${p.month_year}</td>
-            <td>$${p.amount}</td>
+            <td>${formatCurrency(p.amount)}</td>
         `;
         tbody.appendChild(tr);
     });
 }
 
-// --- Reports ---
-window.exportMonthlyReport = async () => {
+// --- PDF Export Logic ---
+window.exportMonthlyReport = () => {
     const { jsPDF } = window.jspdf;
     const doc = new jsPDF();
 
-    // 1. Header
-    doc.setFontSize(22);
-    doc.text('AyD Funcional Gym', 14, 20);
+    // Title
+    doc.setFontSize(18);
+    doc.text(`Reporte Mensual - ${document.getElementById('current-month-display').textContent}`, 14, 22);
 
-    doc.setFontSize(16);
-    doc.text(`Reporte Mensual: ${getMonthName(currentMonth)}`, 14, 30);
-
-    doc.setFontSize(11);
-    doc.text(`Fecha de emisión: ${new Date().toLocaleDateString()}`, 14, 38);
-
-    // 2. Summary Stats
-    // We can pull these from the DOM or recalculate. Recalculation is safer.
-    // Re-using logic from loadDashboard essentially
-    const { data: currentPayments } = await supabase
-        .from('payments')
-        .select('amount, member_id')
-        .eq('month_year', currentMonth);
-
-    const activeMemberIds = new Set(currentPayments?.map(p => p.member_id));
-    const activeCount = activeMemberIds.size;
-    let totalBalance = 0;
-    currentPayments?.forEach(p => totalBalance += parseFloat(p.amount));
-
-    const { count: totalSystemMembers } = await supabase
-        .from('members')
-        .select('*', { count: 'exact', head: true })
-        .eq('active', true);
-
-    const overdueCount = (totalSystemMembers || 0) - activeCount;
-
-    doc.setFillColor(240, 240, 240);
-    doc.rect(14, 45, 180, 25, 'F');
-
-    doc.setTextColor(0, 0, 0);
+    // Summary Headers
     doc.setFontSize(12);
-    doc.text('Resumen Financiero', 20, 55);
+    doc.text(`Total Alumnos Pagos: ${document.getElementById('total-members').textContent}`, 14, 32);
+    doc.text(`Balance: ${document.getElementById('monthly-balance').textContent}`, 14, 40);
 
-    doc.setFontSize(10);
-    doc.text(`Ingresos: $${totalBalance.toLocaleString()}`, 20, 63);
-    doc.text(`Alumnos Activos: ${activeCount}`, 90, 63);
-    doc.text(`Vencimientos: ${overdueCount}`, 150, 63);
-
-    // 3. Detail Table (Payments)
-    // Let's list the members who paid this month
-    const { data: paymentsDetail } = await supabase
-        .from('payments')
-        .select(`
-            created_at,
-            amount,
-            members (first_name, last_name, contact)
-        `)
-        .eq('month_year', currentMonth)
-        .order('created_at', { ascending: false });
-
-    const tableData = paymentsDetail.map(p => [
-        new Date(p.created_at).toLocaleDateString(),
-        p.members ? `${p.members.first_name} ${p.members.last_name}` : 'Desconocido',
-        p.members ? p.members.contact : '-',
-        `$${p.amount}`
-    ]);
-
+    const elem = document.querySelector('.small-table table');
     doc.autoTable({
-        startY: 80,
-        head: [['Fecha', 'Alumno', 'Contacto', 'Monto']],
-        body: tableData,
+        html: elem,
+        startY: 50,
         theme: 'grid',
-        headStyles: { fillColor: [255, 68, 68] }, // Match red theme roughly
-        styles: { fontSize: 10 }
+        headStyles: { fillColor: [255, 215, 0], textColor: [0, 0, 0] }
     });
 
-    const finalY = doc.lastAutoTable.finalY + 10;
-
-    doc.text('*** Fin del Reporte ***', 14, finalY);
-
-    // Save
-    doc.save(`Reporte_AyD_${currentMonth}.pdf`);
-};
+    doc.save(`reporte_${getCurrentMonthISO()}.pdf`);
+}
 
 window.exportPaymentsListPDF = async () => {
     const { jsPDF } = window.jspdf;
     const doc = new jsPDF();
 
     doc.setFontSize(18);
-    doc.text('AyD Funcional Gym', 14, 20);
-    doc.setFontSize(14);
-    doc.text(`Historial de Pagos: ${getMonthName(currentMonth)}`, 14, 30);
+    doc.text(`Lista de Pagos - ${document.getElementById('payments-month-display').textContent}`, 14, 22);
 
-    // Fetch filtered data
+    // Fetch data again to be sure
     const { data: payments } = await supabase
         .from('payments')
         .select(`
             created_at,
             month_year,
             amount,
+            payment_method,
             members (first_name, last_name)
         `)
-        .eq('month_year', currentMonth)
+        .eq('month_year', getCurrentMonthISO())
         .order('created_at', { ascending: false });
 
-    if (!payments || payments.length === 0) {
-        ui.alert('No hay pagos para exportar en este mes.', 'info');
-        return;
-    }
-
     const tableData = payments.map(p => [
-        new Date(p.created_at).toLocaleDateString(),
-        p.members ? `${p.members.first_name} ${p.members.last_name}` : 'Desconocido',
+        formatDate(p.created_at),
+        p.members ? `${p.members.first_name} ${p.members.last_name}` : 'Alumno Eliminado',
         p.month_year,
         `$${p.amount}`
     ]);
 
     doc.autoTable({
-        startY: 40,
-        head: [['Fecha', 'Alumno', 'Mes Pagado', 'Monto']],
+        head: [['Fecha', 'Alumno', 'Mes', 'Monto']],
         body: tableData,
-        theme: 'striped'
+        startY: 30,
+        theme: 'striped',
+        headStyles: { fillColor: [40, 40, 40] }
     });
 
-    doc.save(`Pagos_AyD_${currentMonth}.pdf`);
+    doc.save(`pagos_${getCurrentMonthISO()}.pdf`);
+}
+
+function formatDate(isoString) {
+    if (!isoString) return '-';
+    // If we created it with new Date().toISOString(), it is UTC.
+    // Display in local time
+    const d = new Date(isoString);
+    return d.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
 }

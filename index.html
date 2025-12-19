@@ -5,6 +5,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>AyD Funcional Gym - Gestión 2026</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <link rel="icon" type="image/x-icon" href="./img/Logo.png">
     <link rel="stylesheet" href="style.css">
 </head>
@@ -38,22 +39,12 @@
                 <li onclick="showSection('payments')">Pagos</li>
             </ul>
             <div class="month-selector-container">
-                <label for="global-month-select">Mes de Operación</label>
-                <select id="global-month-select" onchange="changeGlobalMonth()">
-                    <option value="2025-12">Diciembre 2025</option>
-                    <option value="2026-01">Enero 2026</option>
-                    <option value="2026-02">Febrero 2026</option>
-                    <option value="2026-03">Marzo 2026</option>
-                    <option value="2026-04">Abril 2026</option>
-                    <option value="2026-05">Mayo 2026</option>
-                    <option value="2026-06">Junio 2026</option>
-                    <option value="2026-07">Julio 2026</option>
-                    <option value="2026-08">Agosto 2026</option>
-                    <option value="2026-09">Septiembre 2026</option>
-                    <option value="2026-10">Octubre 2026</option>
-                    <option value="2026-11">Noviembre 2026</option>
-                    <option value="2026-12">Diciembre 2026</option>
-                </select>
+                <label>Mes de Operación</label>
+                <div class="month-navigator">
+                    <button id="prev-month-btn" class="nav-btn" onclick="changeGlobalMonth(-1)">❮</button>
+                    <span id="global-month-label">Cargando...</span>
+                    <button id="next-month-btn" class="nav-btn" onclick="changeGlobalMonth(1)">❯</button>
+                </div>
             </div>
             <button id="logout-btn" class="logout-btn">Cerrar Sesión</button>
         </nav>
@@ -68,18 +59,34 @@
                 </div>
 
                 <div class="stats-grid">
-                    <div class="stat-card">
-                        <h3>Alumnos Activos</h3>
-                        <p id="total-members">0 / 300</p>
-                        <small id="growth-stat">-- vs mes anterior</small>
+                    <div class="stat-card stat-card-members">
+                        <div class="stat-icon">👥</div>
+                        <div class="stat-content">
+                            <h3>Alumnos Activos</h3>
+                            <p id="total-members" class="stat-value">0 / 300</p>
+                            <small id="growth-stat" class="stat-growth">-- vs mes anterior</small>
+                        </div>
                     </div>
-                    <div class="stat-card">
-                        <h3>Balance Mensual</h3>
-                        <p id="monthly-balance">$0</p>
+                    <div class="stat-card stat-card-balance">
+                        <div class="stat-icon">💰</div>
+                        <div class="stat-content">
+                            <h3>Balance Mensual</h3>
+                            <p id="monthly-balance" class="stat-value">$0</p>
+                        </div>
                     </div>
-                    <div class="stat-card">
-                        <h3>Vencimientos</h3>
-                        <p id="overdue-count" class="text-danger">0</p>
+                    <div class="stat-card stat-card-overdue">
+                        <div class="stat-icon">⚠️</div>
+                        <div class="stat-content">
+                            <h3>Vencimientos</h3>
+                            <p id="overdue-count" class="stat-value text-danger">0</p>
+                        </div>
+                    </div>
+                </div>
+                <!-- Chart Section -->
+                <div class="chart-section">
+                    <h3>📊 Evolución de Ingresos</h3>
+                    <div class="chart-wrapper">
+                        <canvas id="incomeChart"></canvas>
                     </div>
                 </div>
 
@@ -107,8 +114,23 @@
             <!-- Members Section -->
             <section id="members" class="content-section hidden-section">
                 <div class="header-row">
-                    <h2>Gestión de Alumnos - <span id="members-month-display">Enero 2026</span></h2>
-                    <button class="btn-primary" onclick="openAddMemberModal()">+ Nuevo Alumno</button>
+                    <div>
+                        <h2>Gestión de Alumnos - <span id="members-month-display">Enero 2026</span></h2>
+                        <div class="member-count-badge" id="member-count-badge">0 alumnos</div>
+                    </div>
+                    <div class="header-actions">
+                        <input type="text" id="search-member-input" placeholder="🔍 Buscar alumno..."
+                            class="search-input">
+                        <button class="btn-primary" onclick="openAddMemberModal()">+ Nuevo Alumno</button>
+                    </div>
+                </div>
+
+                <!-- Filter Buttons -->
+                <div class="filter-buttons">
+                    <button class="filter-btn active" data-filter="all" onclick="filterMembers('all')">Todos</button>
+                    <button class="filter-btn" data-filter="paid" onclick="filterMembers('paid')">Pagados</button>
+                    <button class="filter-btn" data-filter="overdue"
+                        onclick="filterMembers('overdue')">Vencidos</button>
                 </div>
                 <!-- Warning if limit reached -->
                 <div id="limit-warning" class="warning-banner hidden">¡Límite de 300 alumnos alcanzado!</div>
@@ -136,6 +158,18 @@
                 <div class="header-row">
                     <h2>Historial de Pagos - <span id="payments-month-display">Enero 2026</span></h2>
                     <button class="btn-primary" onclick="exportPaymentsListPDF()">📄 Exportar Lista</button>
+                </div>
+
+                <!-- Payment Summary Card -->
+                <div class="payment-summary-card">
+                    <div class="summary-item">
+                        <span class="summary-label">Total del Mes:</span>
+                        <span class="summary-value" id="payments-total">$0</span>
+                    </div>
+                    <div class="summary-item">
+                        <span class="summary-label">Cantidad de Pagos:</span>
+                        <span class="summary-value" id="payments-count">0</span>
+                    </div>
                 </div>
                 <div class="table-container">
                     <table>
@@ -181,22 +215,25 @@
                 <input type="hidden" id="payment-member-id">
                 <label>Mes a pagar</label>
                 <select id="payment-month" required>
-                    <option value="2025-12">Diciembre 2025</option>
-                    <option value="2026-01">Enero 2026</option>
-                    <option value="2026-02">Febrero 2026</option>
-                    <option value="2026-03">Marzo 2026</option>
-                    <option value="2026-04">Abril 2026</option>
-                    <option value="2026-05">Mayo 2026</option>
-                    <option value="2026-06">Junio 2026</option>
-                    <option value="2026-07">Julio 2026</option>
-                    <option value="2026-08">Agosto 2026</option>
-                    <option value="2026-09">Septiembre 2026</option>
-                    <option value="2026-10">Octubre 2026</option>
-                    <option value="2026-11">Noviembre 2026</option>
-                    <option value="2026-12">Diciembre 2026</option>
+                    <!-- Options populated by JS -->
                 </select>
                 <input type="number" id="payment-amount" placeholder="Monto" required>
                 <button type="submit">Registrar Pago</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Medical Notes Modal -->
+    <div id="notes-modal" class="modal hidden">
+        <div class="modal-content">
+            <span class="close-btn" onclick="closeNotesModal()">&times;</span>
+            <h2>Observaciones Médicas</h2>
+            <h3 id="notes-member-name">Alumno</h3>
+            <form id="notes-form">
+                <input type="hidden" id="notes-member-id">
+                <textarea id="member-notes" rows="6"
+                    placeholder="Escribir observaciones médicas, lesiones..."></textarea>
+                <button type="submit">Guardar Observaciones</button>
             </form>
         </div>
     </div>
