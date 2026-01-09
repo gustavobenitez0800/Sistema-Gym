@@ -44,7 +44,9 @@ CREATE TABLE IF NOT EXISTS payments (
     amount NUMERIC NOT NULL,
     month_year TEXT NOT NULL, -- Formato: 'YYYY-MM' (ej: '2025-12')
     payment_method TEXT DEFAULT 'Efectivo', -- Efectivo, Transferencia, etc.
-    notes TEXT
+    notes TEXT,
+    payment_date TIMESTAMP WITH TIME ZONE DEFAULT now(),
+    expiration_date TIMESTAMP WITH TIME ZONE -- Fecha límite de acceso
 );
 
 -- -----------------------------------------------------------------------------

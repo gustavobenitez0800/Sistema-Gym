@@ -34,16 +34,25 @@
                 <h2>AyD Gym</h2>
             </div>
             <ul>
-                <li onclick="showSection('dashboard')" class="active-nav">Dashboard</li>
-                <li onclick="showSection('members')">Alumnos</li>
-                <li onclick="showSection('payments')">Pagos</li>
+                <li onclick="showSection('dashboard')" class="active-nav">📊 Dashboard</li>
+                <li onclick="showSection('members')">👥 Alumnos</li>
+                <li onclick="showSection('payments')">💰 Pagos</li>
             </ul>
             <div class="month-selector-container">
-                <label>Mes de Operación</label>
+                <label>Fecha de Operación</label>
+                <div class="date-quick-actions">
+                    <button class="quick-btn" onclick="setToday()" title="Ir a hoy">📅 Hoy</button>
+                    <button class="quick-btn" onclick="setCurrentMonth()" title="Ir al mes actual">📆 Este Mes</button>
+                </div>
+                <div class="date-picker-wrapper">
+                    <input type="date" id="operation-date-picker" class="date-input">
+                </div>
                 <div class="month-navigator">
-                    <button id="prev-month-btn" class="nav-btn" onclick="changeGlobalMonth(-1)">❮</button>
+                    <button id="prev-month-btn" class="nav-btn" onclick="changeGlobalMonth(-1)"
+                        title="Mes anterior">❮</button>
                     <span id="global-month-label">Cargando...</span>
-                    <button id="next-month-btn" class="nav-btn" onclick="changeGlobalMonth(1)">❯</button>
+                    <button id="next-month-btn" class="nav-btn" onclick="changeGlobalMonth(1)"
+                        title="Mes siguiente">❯</button>
                 </div>
             </div>
             <button id="logout-btn" class="logout-btn">Cerrar Sesión</button>
@@ -81,6 +90,46 @@
                             <p id="overdue-count" class="stat-value text-danger">0</p>
                         </div>
                     </div>
+                    <div class="stat-card stat-card-reminder" onclick="showExpiringMembers()">
+                        <div class="stat-icon">🔔</div>
+                        <div class="stat-content">
+                            <h3>Próximos a Vencer</h3>
+                            <p id="expiring-soon-count" class="stat-value text-warning">0</p>
+                            <small class="stat-growth">Próximos 7 días</small>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Widgets Row -->
+                <div class="widgets-row">
+
+
+                    <!-- Payment Methods Widget -->
+                    <div class="widget-card">
+                        <h3>💳 Métodos de Pago</h3>
+                        <div id="payment-methods-chart" class="widget-content">
+                            <canvas id="paymentMethodsChart"></canvas>
+                        </div>
+                    </div>
+
+                    <!-- Retention Widget -->
+                    <div class="widget-card">
+                        <h3>📊 Retención Mensual</h3>
+                        <div id="retention-stats" class="widget-content">
+                            <div class="retention-item">
+                                <span class="retention-label">Tasa de Retención:</span>
+                                <span id="retention-rate" class="retention-value">--</span>
+                            </div>
+                            <div class="retention-item">
+                                <span class="retention-label">Nuevos Alumnos:</span>
+                                <span id="new-members-count" class="retention-value text-success">0</span>
+                            </div>
+                            <div class="retention-item">
+                                <span class="retention-label">Bajas:</span>
+                                <span id="churned-members-count" class="retention-value text-danger">0</span>
+                            </div>
+                        </div>
+                    </div>
                 </div>
                 <!-- Chart Section -->
                 <div class="chart-section">
@@ -116,7 +165,6 @@
                 <div class="header-row">
                     <div>
                         <h2>Gestión de Alumnos - <span id="members-month-display">Enero 2026</span></h2>
-                        <div class="member-count-badge" id="member-count-badge">0 alumnos</div>
                     </div>
                     <div class="header-actions">
                         <input type="text" id="search-member-input" placeholder="🔍 Buscar alumno..."
@@ -131,9 +179,29 @@
                     <button class="filter-btn" data-filter="paid" onclick="filterMembers('paid')">Pagados</button>
                     <button class="filter-btn" data-filter="overdue"
                         onclick="filterMembers('overdue')">Vencidos</button>
+
+                    <div class="filter-controls">
+                        <label for="sort-select">Ordenar por:</label>
+                        <select id="sort-select" onchange="changeSortOrder(this.value)">
+                            <option value="last_name_asc">Apellido A-Z</option>
+                            <option value="last_name_desc">Apellido Z-A</option>
+                            <option value="first_name_asc">Nombre A-Z</option>
+                            <option value="first_name_desc">Nombre Z-A</option>
+                            <option value="created_at_desc">Más recientes</option>
+                            <option value="created_at_asc">Más antiguos</option>
+                            <option value="status">Estado (Vencidos primero)</option>
+                        </select>
+
+                        <label for="items-per-page">Mostrar:</label>
+                        <select id="items-per-page" onchange="changeItemsPerPage(this.value)">
+                            <option value="10">10</option>
+                            <option value="20" selected>20</option>
+                            <option value="50">50</option>
+                            <option value="100">100</option>
+                            <option value="all">Todos</option>
+                        </select>
+                    </div>
                 </div>
-                <!-- Warning if limit reached -->
-                <div id="limit-warning" class="warning-banner hidden">¡Límite de 300 alumnos alcanzado!</div>
 
                 <div class="table-container">
                     <table>
@@ -154,10 +222,11 @@
             </section>
 
             <!-- Payments Section (Historial) -->
-            <section id="payments" class="content-section hidden-section">
+            <section id="payments" class="content-section">
                 <div class="header-row">
                     <h2>Historial de Pagos - <span id="payments-month-display">Enero 2026</span></h2>
-                    <button class="btn-primary" onclick="exportPaymentsListPDF()">📄 Exportar Lista</button>
+                    <div class="header-actions">
+                    </div>
                 </div>
 
                 <!-- Payment Summary Card -->
@@ -173,12 +242,14 @@
                 </div>
                 <div class="table-container">
                     <table>
-                        <thead>
+                        <thead id="payments-table-head">
                             <tr>
-                                <th>Fecha</th>
+                                <th>Fecha de Pago</th>
                                 <th>Alumno</th>
                                 <th>Mes Pagado</th>
+                                <th>Método</th>
                                 <th>Monto</th>
+                                <th>Acciones</th>
                             </tr>
                         </thead>
                         <tbody id="payments-history-body">
@@ -213,12 +284,72 @@
             <h3 id="payment-member-name">Alumno</h3>
             <form id="payment-form">
                 <input type="hidden" id="payment-member-id">
-                <label>Mes a pagar</label>
+
+                <label>Mes que está pagando</label>
                 <select id="payment-month" required>
                     <!-- Options populated by JS -->
                 </select>
+
+                <label>Fecha en que realizó el pago</label>
+                <input type="date" id="payment-date-input" required style="margin-bottom: 5px;">
+
+                <label>Fecha de vencimiento del acceso</label>
+                <input type="date" id="payment-expiration-input" required style="margin-bottom: 15px;">
+
+                <label>Método de pago</label>
+                <select id="payment-method-select" style="margin-bottom: 15px;">
+                    <option value="Efectivo">Efectivo</option>
+                    <option value="Transferencia">Transferencia</option>
+                    <option value="Tarjeta">Tarjeta</option>
+                    <option value="Mercado Pago">Mercado Pago</option>
+                    <option value="Otro">Otro</option>
+                </select>
+
+                <label>Monto</label>
                 <input type="number" id="payment-amount" placeholder="Monto" required>
+
                 <button type="submit">Registrar Pago</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Edit Payment Modal -->
+    <div id="edit-payment-modal" class="modal hidden">
+        <div class="modal-content">
+            <span class="close-btn" onclick="closeEditPaymentModal()">&times;</span>
+            <h2>Editar Fechas de Pago</h2>
+            <div style="margin-bottom: 20px; padding: 10px; background: rgba(255,214,0,0.1); border-radius: 4px;">
+                <p><strong>Alumno:</strong> <span id="edit-payment-member-name"></span></p>
+                <p><strong>Mes:</strong> <span id="edit-payment-month"></span></p>
+                <p><strong>Monto:</strong> <span id="edit-payment-amount"></span></p>
+            </div>
+            <form id="edit-payment-form">
+                <input type="hidden" id="edit-payment-id">
+                <label for="edit-payment-date">Fecha de Pago:</label>
+                <input type="date" id="edit-payment-date" required>
+
+                <label for="edit-expiration-date">Fecha de Vencimiento:</label>
+                <input type="date" id="edit-expiration-date" required>
+
+                <button type="submit">Guardar Cambios</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Edit Member Modal -->
+    <div id="edit-member-modal" class="modal hidden">
+        <div class="modal-content">
+            <span class="close-btn" onclick="closeEditMemberModal()">&times;</span>
+            <h2>Editar Alumno</h2>
+            <form id="edit-member-form">
+                <input type="hidden" id="edit-member-id">
+                <label>Nombre</label>
+                <input type="text" id="edit-name" placeholder="Nombre" required>
+                <label>Apellido</label>
+                <input type="text" id="edit-lastname" placeholder="Apellido" required>
+                <label>Contacto</label>
+                <input type="text" id="edit-contact" placeholder="Contacto (Tel/Email)" required>
+                <button type="submit" id="update-member-btn">Actualizar</button>
             </form>
         </div>
     </div>
@@ -235,6 +366,30 @@
                     placeholder="Escribir observaciones médicas, lesiones..."></textarea>
                 <button type="submit">Guardar Observaciones</button>
             </form>
+        </div>
+    </div>
+
+    <!-- Expiring Members Modal -->
+    <div id="expiring-modal" class="modal hidden">
+        <div class="modal-content" style="max-width: 600px;">
+            <span class="close-btn" onclick="closeExpiringModal()">&times;</span>
+            <h2>🔔 Alumnos Próximos a Vencer</h2>
+            <p style="color: #999; margin-bottom: 20px;">Vencen en los próximos 7 días</p>
+            <div class="table-container">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Alumno</th>
+                            <th>Contacto</th>
+                            <th>Vence</th>
+                            <th>Días</th>
+                        </tr>
+                    </thead>
+                    <tbody id="expiring-members-body">
+                        <!-- Loaded via JS -->
+                    </tbody>
+                </table>
+            </div>
         </div>
     </div>
 

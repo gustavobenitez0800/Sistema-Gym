@@ -1,0 +1,50 @@
+═══════════════════════════════════════════════════════════
+  CÓMO ACTUALIZAR EL SISTEMA DE GIMNASIO
+═══════════════════════════════════════════════════════════
+
+OPCIÓN 1: ACTUALIZACIÓN AUTOMÁTICA (MÁS FÁCIL)
+-----------------------------------------------
+1. Haz doble clic en el archivo "ACTUALIZAR.bat"
+2. Espera a que termine (aparecerá un mensaje de éxito)
+3. ¡Listo! El sistema está actualizado
+
+IMPORTANTE:
+- Necesitas estar conectado a internet
+- Cierra el sistema antes de actualizar
+- Tus datos NO se borrarán (están en Supabase)
+
+
+OPCIÓN 2: ACTUALIZACIÓN MANUAL
+-------------------------------
+Si la actualización automática no funciona:
+
+1. Descarga el archivo ZIP desde:
+   https://github.com/TU-USUARIO/Sistema-Gym/archive/refs/heads/main.zip
+
+2. Extrae el contenido del ZIP
+
+3. Copia SOLO estos archivos a tu carpeta del sistema:
+   - index.html
+   - app.js
+   - style.css
+   - auth.html
+   - auth.css
+
+4. NO copies ni reemplaces:
+   - src/config.js (tiene tu configuración de Supabase)
+
+
+PROBLEMAS COMUNES
+-----------------
+❌ "No se pudo descargar la actualización"
+   → Verifica tu conexión a internet
+
+❌ "El sistema no funciona después de actualizar"
+   → Asegúrate de no haber reemplazado src/config.js
+
+
+CONTACTO
+--------
+Si tienes problemas, contacta a: [TU CONTACTO]
+
+═══════════════════════════════════════════════════════════
