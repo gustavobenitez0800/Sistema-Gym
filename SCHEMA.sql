@@ -30,8 +30,14 @@ CREATE TABLE IF NOT EXISTS members (
     contact TEXT,
     active BOOLEAN DEFAULT true,
     notes TEXT, -- Notas adicionales (médicas, observaciones)
-    join_date DATE DEFAULT CURRENT_DATE
+    join_date DATE DEFAULT CURRENT_DATE,
+    schedule_time TEXT, -- Horario preferido (ej: "08:00", "18:30")
+    attendance_days TEXT -- Días que asiste en formato JSON array (ej: '["Lun","Mie","Vie"]')
 );
+
+-- Run this ALTER to add columns to existing tables:
+-- ALTER TABLE members ADD COLUMN IF NOT EXISTS schedule_time TEXT;
+-- ALTER TABLE members ADD COLUMN IF NOT EXISTS attendance_days TEXT;
 
 -- -----------------------------------------------------------------------------
 -- TABLE: payments

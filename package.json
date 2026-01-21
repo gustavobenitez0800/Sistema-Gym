@@ -5,6 +5,7 @@
   "main": "main.js",
   "scripts": {
     "start": "electron .",
+    "web": "npx serve -l 3000",
     "build": "electron-builder -w"
   },
   "keywords": [
@@ -16,7 +17,8 @@
   "license": "ISC",
   "devDependencies": {
     "electron": "^28.0.0",
-    "electron-builder": "^24.13.3"
+    "electron-builder": "^24.13.3",
+    "serve": "^14.2.4"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.39.0"

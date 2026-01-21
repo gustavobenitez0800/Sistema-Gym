@@ -838,14 +838,33 @@ function renderPagination() {
         const safeFirstName = member.first_name.replace(/'/g, "\\'");
         const safeLastName = member.last_name.replace(/'/g, "\\'");
         const safeContact = member.contact.replace(/'/g, "\\'");
+        const safeScheduleTime = member.schedule_time || '';
+        const safeAttendanceDays = member.attendance_days ? member.attendance_days.replace(/'/g, "\\'") : '[]';
+
+        // Format schedule display
+        let scheduleDisplay = '';
+        if (member.schedule_time || member.attendance_days) {
+            const timeDisplay = member.schedule_time ? `<span class="schedule-badge"><span class="time-icon">🕐</span>${member.schedule_time}</span>` : '';
+
+            let daysDisplay = '';
+            if (member.attendance_days) {
+                try {
+                    const daysArray = JSON.parse(member.attendance_days);
+                    if (daysArray.length > 0) {
+                        daysDisplay = `<div class="days-badge">${daysArray.map(d => `<span class="day-tag active">${d}</span>`).join('')}</div>`;
+                    }
+                } catch (e) { }
+            }
+            scheduleDisplay = `<div class="member-schedule">${timeDisplay}${daysDisplay}</div>`;
+        }
 
         tr.innerHTML = `
             <td class="${nameClass}">${member.first_name}</td>
             <td class="${nameClass}">${member.last_name}</td>
-            <td>${member.contact}</td>
+            <td>${member.contact}${scheduleDisplay}</td>
             <td>${statusBadge}</td>
             <td>
-                <button class="action-btn" title="Editar" onclick="openEditMemberModal('${member.id}', '${safeFirstName}', '${safeLastName}', '${safeContact}')">✏️</button>
+                <button class="action-btn" title="Editar" onclick="openEditMemberModal('${member.id}', '${safeFirstName}', '${safeLastName}', '${safeContact}', '${safeScheduleTime}', '${safeAttendanceDays}')">✏️</button>
                 <button class="action-btn" title="Pagar" onclick="openPaymentModal('${member.id}', '${fullName}')">💰</button>
                 <button class="action-btn" title="Observaciones Médicas" onclick="openNotesModal('${member.id}', '${fullName}', '${safeNotes}')">🩺</button>
                 <button class="action-btn btn-delete" title="Eliminar Alumno" onclick="deleteMember('${member.id}')">🗑️</button>
@@ -1031,12 +1050,30 @@ const ui = {
 
 // --- Add Member ---
 window.openAddMemberModal = () => {
+    // Reset form and checkboxes when opening
+    document.getElementById('add-member-form').reset();
+    document.getElementById('new-schedule-time').value = '';
+    document.querySelectorAll('#new-days-selector input[type="checkbox"]').forEach(cb => cb.checked = false);
     document.getElementById('add-member-modal').classList.remove('hidden');
 };
 
 window.closeAddMemberModal = () => {
     document.getElementById('add-member-modal').classList.add('hidden');
 };
+
+// Helper function to get selected days from a day selector
+function getSelectedDays(selectorId) {
+    const checkboxes = document.querySelectorAll(`#${selectorId} input[type="checkbox"]:checked`);
+    return Array.from(checkboxes).map(cb => cb.value);
+}
+
+// Helper function to set selected days in a day selector
+function setSelectedDays(selectorId, days) {
+    const daysArray = typeof days === 'string' ? JSON.parse(days || '[]') : (days || []);
+    document.querySelectorAll(`#${selectorId} input[type="checkbox"]`).forEach(cb => {
+        cb.checked = daysArray.includes(cb.value);
+    });
+}
 
 async function handleAddMember(e) {
     e.preventDefault();
@@ -1064,8 +1101,12 @@ async function handleAddMember(e) {
     submitBtn.disabled = true;
     submitBtn.textContent = 'Guardando...';
 
+    // Get schedule data
+    const schedule_time = document.getElementById('new-schedule-time').value || null;
+    const attendance_days = JSON.stringify(getSelectedDays('new-days-selector'));
+
     const { error } = await supabase.from('members').insert([{
-        first_name, last_name, contact
+        first_name, last_name, contact, schedule_time, attendance_days
     }]);
 
     // Re-enable button
@@ -1084,11 +1125,13 @@ async function handleAddMember(e) {
 }
 
 // --- Edit Member ---
-window.openEditMemberModal = (id, firstName, lastName, contact) => {
+window.openEditMemberModal = async (id, firstName, lastName, contact, scheduleTime = '', attendanceDays = '[]') => {
     document.getElementById('edit-member-id').value = id;
     document.getElementById('edit-name').value = firstName;
     document.getElementById('edit-lastname').value = lastName;
     document.getElementById('edit-contact').value = contact;
+    document.getElementById('edit-schedule-time').value = scheduleTime || '';
+    setSelectedDays('edit-days-selector', attendanceDays);
     document.getElementById('edit-member-modal').classList.remove('hidden');
 };
 
@@ -1123,9 +1166,13 @@ async function handleEditMember(e) {
     submitBtn.disabled = true;
     submitBtn.textContent = 'Actualizando...';
 
+    // Get schedule data
+    const schedule_time = document.getElementById('edit-schedule-time').value || null;
+    const attendance_days = JSON.stringify(getSelectedDays('edit-days-selector'));
+
     const { error } = await supabase
         .from('members')
-        .update({ first_name, last_name, contact })
+        .update({ first_name, last_name, contact, schedule_time, attendance_days })
         .eq('id', id);
 
     // Re-enable button
@@ -1710,3 +1757,118 @@ function showKeyboardShortcutsHelp() {
     container.appendChild(alertBox);
 }
 
+// ===== MOBILE SIDEBAR TOGGLE =====
+function initMobileSidebar() {
+    const menuToggle = document.getElementById('mobile-menu-toggle');
+    const sidebar = document.querySelector('.sidebar');
+    const overlay = document.getElementById('sidebar-overlay');
+
+    if (!menuToggle || !sidebar || !overlay) return;
+
+    // Toggle sidebar on menu button click
+    menuToggle.addEventListener('click', () => {
+        menuToggle.classList.toggle('active');
+        sidebar.classList.toggle('open');
+        overlay.classList.toggle('active');
+
+        // Prevent body scroll when sidebar is open
+        document.body.style.overflow = sidebar.classList.contains('open') ? 'hidden' : '';
+    });
+
+    // Close sidebar when clicking overlay
+    overlay.addEventListener('click', closeMobileSidebar);
+
+    // Close sidebar when clicking a menu item
+    sidebar.querySelectorAll('li').forEach(item => {
+        item.addEventListener('click', () => {
+            if (window.innerWidth <= 768) {
+                closeMobileSidebar();
+            }
+        });
+    });
+
+    // Close sidebar on escape key
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && sidebar.classList.contains('open')) {
+            closeMobileSidebar();
+        }
+    });
+
+    // Handle resize - close sidebar if switching to desktop
+    window.addEventListener('resize', () => {
+        if (window.innerWidth > 768 && sidebar.classList.contains('open')) {
+            closeMobileSidebar();
+        }
+    });
+}
+
+function closeMobileSidebar() {
+    const menuToggle = document.getElementById('mobile-menu-toggle');
+    const sidebar = document.querySelector('.sidebar');
+    const overlay = document.getElementById('sidebar-overlay');
+
+    menuToggle?.classList.remove('active');
+    sidebar?.classList.remove('open');
+    overlay?.classList.remove('active');
+    document.body.style.overflow = '';
+}
+
+// Initialize mobile sidebar when DOM is ready
+document.addEventListener('DOMContentLoaded', () => {
+    initMobileSidebar();
+});
+
+// ===== DATA LABELS FOR MOBILE TABLES =====
+// This function adds data-label attributes to table cells for mobile card view
+function addDataLabelsToTable(tableId, labels) {
+    const table = document.getElementById(tableId);
+    if (!table) return;
+
+    const rows = table.querySelectorAll('tbody tr');
+    rows.forEach(row => {
+        const cells = row.querySelectorAll('td');
+        cells.forEach((cell, index) => {
+            if (labels[index]) {
+                cell.setAttribute('data-label', labels[index]);
+            }
+        });
+    });
+}
+
+// Wrapper function to refresh all table labels
+function refreshMobileTableLabels() {
+    // Members table
+    addDataLabelsToTable('members-table-body', ['Nombre', 'Apellido', 'Contacto', 'Cuota', 'Acciones']);
+
+    // Payments table
+    addDataLabelsToTable('payments-history-body', ['Fecha', 'Alumno', 'Mes Pagado', 'Método', 'Monto', 'Acciones']);
+
+    // Annual stats table
+    addDataLabelsToTable('annual-stats-body', ['Mes', 'Alumnos', 'Ingresos', 'Crecimiento']);
+
+    // Expiring members table
+    addDataLabelsToTable('expiring-members-body', ['Alumno', 'Contacto', 'Vence', 'Días']);
+}
+
+// Call after rendering tables - we'll hook into existing functions
+const originalRenderMembersTable = typeof renderMembersTable === 'function' ? renderMembersTable : null;
+
+// Auto-refresh labels when DOM changes (for dynamic content)
+if (typeof MutationObserver !== 'undefined') {
+    const tablesObserver = new MutationObserver(() => {
+        requestAnimationFrame(refreshMobileTableLabels);
+    });
+
+    document.addEventListener('DOMContentLoaded', () => {
+        const tables = ['members-table-body', 'payments-history-body', 'annual-stats-body', 'expiring-members-body'];
+        tables.forEach(id => {
+            const el = document.getElementById(id);
+            if (el) {
+                tablesObserver.observe(el, { childList: true, subtree: true });
+            }
+        });
+
+        // Initial labels
+        setTimeout(refreshMobileTableLabels, 100);
+    });
+}

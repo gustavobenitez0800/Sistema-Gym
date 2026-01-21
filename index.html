@@ -12,6 +12,16 @@
 
 <body>
 
+    <!-- Mobile Menu Toggle -->
+    <button class="mobile-menu-toggle" id="mobile-menu-toggle" aria-label="Abrir menú">
+        <div class="hamburger-line"></div>
+        <div class="hamburger-line"></div>
+        <div class="hamburger-line"></div>
+    </button>
+
+    <!-- Sidebar Overlay -->
+    <div class="sidebar-overlay" id="sidebar-overlay"></div>
+
     <!-- Login Screen -->
     <div id="login-screen" class="screen active">
         <div class="login-card">
@@ -271,6 +281,20 @@
                 <input type="text" id="new-name" placeholder="Nombre" required>
                 <input type="text" id="new-lastname" placeholder="Apellido" required>
                 <input type="text" id="new-contact" placeholder="Contacto (Tel/Email)" required>
+
+                <label>Horario de Asistencia</label>
+                <input type="time" id="new-schedule-time" class="schedule-time-input">
+
+                <label>Días de Asistencia</label>
+                <div class="days-selector" id="new-days-selector">
+                    <label class="day-checkbox"><input type="checkbox" value="Lun"> Lun</label>
+                    <label class="day-checkbox"><input type="checkbox" value="Mar"> Mar</label>
+                    <label class="day-checkbox"><input type="checkbox" value="Mié"> Mié</label>
+                    <label class="day-checkbox"><input type="checkbox" value="Jue"> Jue</label>
+                    <label class="day-checkbox"><input type="checkbox" value="Vie"> Vie</label>
+                    <label class="day-checkbox"><input type="checkbox" value="Sáb"> Sáb</label>
+                </div>
+
                 <button type="submit" id="save-member-btn">Guardar</button>
             </form>
         </div>
@@ -349,6 +373,20 @@
                 <input type="text" id="edit-lastname" placeholder="Apellido" required>
                 <label>Contacto</label>
                 <input type="text" id="edit-contact" placeholder="Contacto (Tel/Email)" required>
+
+                <label>Horario de Asistencia</label>
+                <input type="time" id="edit-schedule-time" class="schedule-time-input">
+
+                <label>Días de Asistencia</label>
+                <div class="days-selector" id="edit-days-selector">
+                    <label class="day-checkbox"><input type="checkbox" value="Lun"> Lun</label>
+                    <label class="day-checkbox"><input type="checkbox" value="Mar"> Mar</label>
+                    <label class="day-checkbox"><input type="checkbox" value="Mié"> Mié</label>
+                    <label class="day-checkbox"><input type="checkbox" value="Jue"> Jue</label>
+                    <label class="day-checkbox"><input type="checkbox" value="Vie"> Vie</label>
+                    <label class="day-checkbox"><input type="checkbox" value="Sáb"> Sáb</label>
+                </div>
+
                 <button type="submit" id="update-member-btn">Actualizar</button>
             </form>
         </div>
