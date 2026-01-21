@@ -9,7 +9,6 @@ Thumbs.db
 *.swo
 *~
 .gemini/
-src/config.js
 
 # Builds e Instaladores (NO SUBIR)
 dist/
