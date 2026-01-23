@@ -77,6 +77,8 @@ body {
     border: 1px solid var(--primary);
     transition: transform 0.3s ease, box-shadow 0.3s ease;
     box-sizing: border-box;
+    position: relative;
+    z-index: 100;
 }
 
 .login-card:hover {
@@ -1500,10 +1502,12 @@ button:disabled:hover,
     z-index: 999;
     opacity: 0;
     transition: opacity 0.3s ease;
+    pointer-events: none;
 }
 
 .sidebar-overlay.active {
     opacity: 1;
+    pointer-events: auto;
 }
 
 /* ============================================
