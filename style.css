@@ -47,8 +47,11 @@ body {
 /* Screens */
 .screen {
     width: 100vw;
-    height: 100vh;
+    min-height: 100vh;
+    min-height: 100dvh;
+    /* Dynamic viewport height - better for mobile */
     display: none;
+    overflow-y: auto;
 }
 
 .screen.active {
@@ -60,6 +63,7 @@ body {
     align-items: center;
     justify-content: center;
     background: radial-gradient(circle at center, #333300 0%, #000000 100%);
+    padding: 20px;
 }
 
 .login-card {
