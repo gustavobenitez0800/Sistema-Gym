@@ -1,6 +1,16 @@
 
 import { supabase } from './src/supabaseClient.js';
 
+// Debug helper - shows errors visually on mobile
+function showDebugError(message, error = null) {
+    console.error('[DEBUG]', message, error);
+    const errorEl = document.getElementById('login-error');
+    if (errorEl) {
+        errorEl.textContent = `Debug: ${message}${error ? ' - ' + error.message : ''}`;
+        errorEl.style.display = 'block';
+    }
+}
+
 // ===== GLOBAL STATE & CONFIGURATION =====
 let currentDate = new Date();
 currentDate.setDate(1); // Init to current month effectively
@@ -23,26 +33,32 @@ const validators = {
 
 
 document.addEventListener('DOMContentLoaded', () => {
-    if (!supabase) {
-        document.body.innerHTML = `
-            <div style="display:flex; justify-content:center; align-items:center; height:100vh; flex-direction:column; background:#121212; color:white;">
-                <h1 style="color:#ff4444;">Configuración Faltante</h1>
-                <div style="margin-top:20px; padding:10px; background:#333; border-radius:4px;">
-                    src/config.js
+    try {
+        console.log('[DEBUG] DOMContentLoaded - supabase:', !!supabase);
+
+        if (!supabase) {
+            document.body.innerHTML = `
+                <div style="display:flex; justify-content:center; align-items:center; height:100vh; flex-direction:column; background:#121212; color:white;">
+                    <h1 style="color:#ff4444;">Configuración Faltante</h1>
+                    <div style="margin-top:20px; padding:10px; background:#333; border-radius:4px;">
+                        src/config.js
+                    </div>
                 </div>
-            </div>
-        `;
-        return;
+            `;
+            return;
+        }
+        checkSession();
+        setupEventListeners();
+
+        // Set initial display
+        updateMonthDisplays();
+        initializeDatePicker();
+
+        // NEW: Setup keyboard shortcuts
+        setupKeyboardShortcuts();
+    } catch (err) {
+        showDebugError('Error en inicialización', err);
     }
-    checkSession();
-    setupEventListeners();
-
-    // Set initial display
-    updateMonthDisplays();
-    initializeDatePicker();
-
-    // NEW: Setup keyboard shortcuts
-    setupKeyboardShortcuts();
 });
 
 function setupEventListeners() {
