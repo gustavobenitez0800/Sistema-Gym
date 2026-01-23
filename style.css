@@ -66,11 +66,13 @@ body {
     background: var(--card-bg);
     padding: 2rem;
     border-radius: 12px;
-    width: 350px;
+    width: 90%;
+    max-width: 350px;
     text-align: center;
     box-shadow: 0 0 20px rgba(255, 214, 0, 0.2);
     border: 1px solid var(--primary);
     transition: transform 0.3s ease, box-shadow 0.3s ease;
+    box-sizing: border-box;
 }
 
 .login-card:hover {
@@ -92,13 +94,13 @@ body {
     color: white;
     border-radius: 4px;
     transition: all 0.3s ease;
+    box-sizing: border-box;
 }
 
 .login-card input:focus {
     border-color: var(--primary);
     box-shadow: 0 0 10px rgba(255, 214, 0, 0.2);
     outline: none;
-    transform: scale(1.02);
 }
 
 .login-card button {
