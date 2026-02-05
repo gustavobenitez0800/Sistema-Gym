@@ -86,6 +86,8 @@ echo Instalando actualizacion...
 
 REM Detectar si estamos en modo instalado (junto a resources\app)
 set "TARGET_DIR=%~dp0"
+:: Remove trailing backslash if present to make quotes work in robocopy
+if "%TARGET_DIR:~-1%"=="\" set "TARGET_DIR=%TARGET_DIR:~0,-1%"
 if exist "%~dp0resources\app" (
     echo Detectado modo instalado. Actualizando resources\app...
     set "TARGET_DIR=%~dp0resources\app"
