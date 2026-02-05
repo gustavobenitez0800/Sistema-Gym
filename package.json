@@ -1,6 +1,6 @@
 {
   "name": "ayd-funcional-gym",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Sistema de Gestion AyD Funcional Gym 2026",
   "main": "main.js",
   "scripts": {
@@ -21,20 +21,25 @@
     "serve": "^14.2.4"
   },
   "dependencies": {
-    "@supabase/supabase-js": "^2.39.0"
+    "@supabase/supabase-js": "^2.39.0",
+    "electron-log": "^5.4.3",
+    "electron-updater": "^6.7.3"
   },
   "build": {
     "appId": "com.aydfuncional.gym",
     "productName": "AyD Funcional Gym",
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "gustavobenitez0800",
+        "repo": "Sistema-Gym"
+      }
+    ],
     "win": {
       "target": "nsis",
       "icon": "assets/icon.png"
     },
     "asar": false,
-    "extraFiles": [
-      "ACTUALIZAR.bat",
-      "update-exclude.txt"
-    ],
     "directories": {
       "output": "dist"
     }

@@ -1,5 +1,12 @@
 const { app, BrowserWindow } = require('electron');
+const { autoUpdater } = require('electron-updater');
+const log = require('electron-log');
 const path = require('path');
+
+// Configure logging
+autoUpdater.logger = log;
+autoUpdater.logger.transports.file.level = 'info';
+log.info('App starting...');
 
 function createWindow() {
     const mainWindow = new BrowserWindow({
@@ -13,12 +20,15 @@ function createWindow() {
     });
 
     mainWindow.loadFile('index.html');
-    
+
     // mainWindow.webContents.openDevTools(); // Uncomment for debugging
 }
 
 app.whenReady().then(() => {
     createWindow();
+
+    // Check for updates
+    autoUpdater.checkForUpdatesAndNotify();
 
     app.on('activate', () => {
         if (BrowserWindow.getAllWindows().length === 0) {
