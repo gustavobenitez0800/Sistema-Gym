@@ -173,7 +173,23 @@ document.addEventListener('DOMContentLoaded', () => {
         });
 
         ipcRenderer.on('update_error', (event, err) => {
-            showNotification('Error al actualizar: ' + err, 'Error', 'error');
+            // User-friendly error messages based on error type
+            let userMessage = 'Error al actualizar';
+            let errorType = 'error';
+
+            if (err.includes('404') || err.includes('Cannot download')) {
+                userMessage = 'La actualización aún se está compilando. Intenta de nuevo en 5 minutos.';
+                errorType = 'search'; // Use search icon (less alarming)
+            } else if (err.includes('net::') || err.includes('ENOTFOUND') || err.includes('ETIMEDOUT')) {
+                userMessage = 'Sin conexión a internet. Verifica tu red e intenta nuevamente.';
+            } else if (err.includes('ENOENT') || err.includes('path')) {
+                userMessage = 'Error de instalación. Reinicia la aplicación e intenta de nuevo.';
+            } else {
+                userMessage = 'Error al actualizar. Intenta más tarde.';
+                console.error('[UPDATE] Error:', err);
+            }
+
+            showNotification(userMessage, 'Aviso', errorType);
             if (actions) actions.innerHTML = `<button class="btn-dismiss">Cerrar</button>`;
         });
     } catch (err) {
