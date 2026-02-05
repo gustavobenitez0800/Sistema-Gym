@@ -94,39 +94,50 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         }
 
+        // Event Delegation for Notification Buttons
+        actions.addEventListener('click', (e) => {
+            if (e.target.classList.contains('btn-dismiss')) {
+                notification.classList.remove('show');
+            } else if (e.target.classList.contains('btn-update')) {
+                ipcRenderer.send('restart_app');
+            }
+        });
+
         ipcRenderer.on('checking_for_update', () => {
             showNotification('Buscando actualizaciones...', 'Buscando');
-            actions.innerHTML = ``; // No actions needed while checking
+            actions.innerHTML = ``;
         });
 
         ipcRenderer.on('update_available', () => {
             showNotification('Nueva versión disponible. Descargando en segundo plano...', 'Actualizando');
-            actions.innerHTML = `<button class="btn-dismiss" onclick="document.getElementById('update-notification').classList.remove('show')">Ocultar</button>`;
+            actions.innerHTML = `<button class="btn-dismiss">Ocultar</button>`; // Removed inline onclick
         });
 
         ipcRenderer.on('update_not_available', () => {
+            // Added more prominent checkmark icon
             showNotification('Tu sistema está actualizado.', 'Todo al día');
-            actions.innerHTML = `<button class="btn-dismiss" onclick="document.getElementById('update-notification').classList.remove('show')">Aceptar</button>`;
-            // Auto hide after 3 seconds for cleaner UX
+            // Changed button text to 'Entendido' and ensured class matches delegation
+            actions.innerHTML = `<button class="btn-dismiss" style="background:var(--primary); color:black; border:none; font-weight:bold;">Entendido</button>`;
+
             setTimeout(() => {
                 const notif = document.getElementById('update-notification');
                 if (notif && notif.classList.contains('show') && document.getElementById('update-message').textContent.includes('actualizado')) {
                     notif.classList.remove('show');
                 }
-            }, 3000);
+            }, 4000); // 4 Seconds
         });
 
         ipcRenderer.on('update_downloaded', () => {
             showNotification('La actualización está lista para instalarse.', 'Actualización Lista');
             actions.innerHTML = `
-                <button class="btn-update" onclick="ipcRenderer.send('restart_app')">Reiniciar Ahora</button>
-                <button class="btn-dismiss" onclick="document.getElementById('update-notification').classList.remove('show')">Más tarde</button>
+                <button class="btn-update">Reiniciar Ahora</button>
+                <button class="btn-dismiss">Más tarde</button>
             `;
         });
 
         ipcRenderer.on('update_error', (event, err) => {
             showNotification('Error al actualizar: ' + err, 'Error', true);
-            actions.innerHTML = `<button class="btn-dismiss" onclick="document.getElementById('update-notification').classList.remove('show')">Cerrar</button>`;
+            actions.innerHTML = `<button class="btn-dismiss">Cerrar</button>`;
         });
     } catch (err) {
         showDebugError('Error en inicialización', err);

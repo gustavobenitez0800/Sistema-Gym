@@ -165,77 +165,13 @@
         /* Prevent header from shrinking */
     }
 
-    /* Custom Update Notification (Toast) */
-    .update-notification {
-        position: fixed;
-        bottom: 20px;
-        right: 20px;
-        background: #1a1a1a;
-        color: white;
-        padding: 20px;
-        border-radius: 8px;
-        border-left: 5px solid var(--primary);
-        box-shadow: 0 5px 20px rgba(0, 0, 0, 0.5);
-        display: none;
-        /* Hidden by default */
-        z-index: 9999;
-        animation: slideIn 0.5s ease-out;
-        max-width: 350px;
+    opacity: 0;
     }
 
-    .update-notification.show {
-        display: block;
+    to {
+        transform: translateX(0);
+        opacity: 1;
     }
-
-    .update-notification h4 {
-        margin: 0 0 10px 0;
-        color: var(--primary);
-        display: flex;
-        align-items: center;
-        gap: 10px;
-    }
-
-    .update-notification p {
-        font-size: 0.9rem;
-        margin-bottom: 15px;
-        color: #ddd;
-    }
-
-    .update-actions {
-        display: flex;
-        gap: 10px;
-        justify-content: flex-end;
-    }
-
-    .btn-update {
-        background: var(--primary);
-        color: black;
-        border: none;
-        padding: 8px 15px;
-        border-radius: 4px;
-        cursor: pointer;
-        font-weight: bold;
-    }
-
-    .btn-dismiss {
-        background: transparent;
-        color: #999;
-        border: 1px solid #444;
-        padding: 8px 15px;
-        border-radius: 4px;
-        cursor: pointer;
-    }
-
-    @keyframes slideIn {
-        from {
-            transform: translateX(100%);
-            opacity: 0;
-        }
-
-        to {
-            transform: translateX(0);
-            opacity: 1;
-        }
     }
 
     .sidebar-logo {
