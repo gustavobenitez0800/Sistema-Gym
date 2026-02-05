@@ -24,8 +24,8 @@ jobs:
       - name: Install dependencies
         run: npm install
 
-      - name: Build and Publish Electron app
-        run: npx electron-builder -w --publish always
+      - name: Build Electron app (no publish)
+        run: npx electron-builder -w --publish never
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -33,16 +33,21 @@ jobs:
         run: dir dist
         shell: cmd
 
+      - name: Create Release and Upload Assets
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            dist/*.exe
+            dist/*.exe.blockmap
+            dist/latest.yml
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: windows-installer
           path: dist/*.exe
-
-      - name: Publish Release (remove draft)
-        uses: softprops/action-gh-release@v1
-        with:
-          draft: false
-          prerelease: false
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
