@@ -39,11 +39,6 @@ autoUpdater.on('update-available', (info) => {
     if (BrowserWindow.getAllWindows().length > 0) {
         BrowserWindow.getAllWindows()[0].webContents.send('update_available');
     }
-    dialog.showMessageBox({
-        type: 'info',
-        title: 'Actualización Disponible',
-        message: 'Una nueva versión está disponible. Descargando ahora...'
-    });
 });
 
 autoUpdater.on('update-not-available', (info) => {
@@ -55,11 +50,10 @@ autoUpdater.on('update-not-available', (info) => {
 
 autoUpdater.on('error', (err) => {
     log.error('Error in auto-updater. ' + err);
-    dialog.showMessageBox({
-        type: 'error',
-        title: 'Error de Actualización',
-        message: 'Hubo un error al buscar actualizaciones: ' + err
-    });
+    // Notify Renderer
+    if (BrowserWindow.getAllWindows().length > 0) {
+        BrowserWindow.getAllWindows()[0].webContents.send('update_error', err.toString());
+    }
 });
 
 autoUpdater.on('download-progress', (progressObj) => {
@@ -71,19 +65,10 @@ autoUpdater.on('download-progress', (progressObj) => {
 
 autoUpdater.on('update-downloaded', (info) => {
     log.info('Update downloaded', info);
-    const dialogOpts = {
-        type: 'info',
-        buttons: ['Reiniciar', 'Más tarde'],
-        title: 'Actualización Lista',
-        message: 'Nueva versión descargada',
-        detail: 'La actualización se ha descargado. Reinicia la aplicación para aplicar los cambios.'
-    };
-
-    dialog.showMessageBox(dialogOpts).then((returnValue) => {
-        if (returnValue.response === 0) {
-            autoUpdater.quitAndInstall();
-        }
-    });
+    // Notify Renderer
+    if (BrowserWindow.getAllWindows().length > 0) {
+        BrowserWindow.getAllWindows()[0].webContents.send('update_downloaded');
+    }
 });
 
 function createWindow() {
