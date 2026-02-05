@@ -32,6 +32,27 @@
         width: 100vw;
     }
 
+    /* Global Scrollbar Design */
+    ::-webkit-scrollbar {
+        width: 8px;
+        height: 8px;
+    }
+
+    ::-webkit-scrollbar-track {
+        background: #0f0f0f;
+    }
+
+    ::-webkit-scrollbar-thumb {
+        background: #444;
+        border-radius: 4px;
+        border: 2px solid #0f0f0f;
+        /* Creates padding effect */
+    }
+
+    ::-webkit-scrollbar-thumb:hover {
+        background: var(--primary);
+    }
+
     /* Screens */
     .screen {
         width: 100vw;
@@ -255,6 +276,35 @@
         display: flex;
         justify-content: space-between;
         align-items: center;
+        margin-bottom: 25px;
+        /* Added spacing below header */
+    }
+
+    /* Primary Button Style */
+    .btn-primary {
+        background: var(--primary);
+        color: #000;
+        border: none;
+        padding: 10px 20px;
+        border-radius: 8px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.3s ease;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 0.9rem;
+        box-shadow: 0 4px 10px rgba(255, 214, 0, 0.2);
+    }
+
+    .btn-primary:hover {
+        background: var(--primary-hover);
+        transform: translateY(-2px);
+        box-shadow: 0 6px 15px rgba(255, 214, 0, 0.3);
+    }
+
+    .btn-primary:active {
+        transform: translateY(0);
     }
 
     .header-row {
