@@ -693,81 +693,108 @@ window.repairDatabase = async function () {
 
 // NEW: Expiring Soon Count
 async function loadExpiringSoonCount() {
-    const today = new Date();
-    const sevenDaysLater = new Date(today);
-    sevenDaysLater.setDate(today.getDate() + 7);
+    try {
+        const today = new Date();
+        const sevenDaysLater = new Date(today);
+        sevenDaysLater.setDate(today.getDate() + 7);
 
-    const { data: expiringPayments } = await supabase
-        .from('payments')
-        .select('member_id, expiration_date')
-        .gte('expiration_date', today.toISOString())
-        .lte('expiration_date', sevenDaysLater.toISOString());
+        const { data: expiringPayments, error } = await supabase
+            .from('payments')
+            .select('member_id, expiration_date')
+            .gte('expiration_date', today.toISOString())
+            .lte('expiration_date', sevenDaysLater.toISOString());
 
-    const uniqueMembers = new Set(expiringPayments?.map(p => p.member_id));
-    const count = uniqueMembers.size;
+        if (error) {
+            console.error('[EXPIRING] Error:', error.message);
+            return;
+        }
 
-    document.getElementById('expiring-soon-count').textContent = count;
+        const uniqueMembers = new Set(expiringPayments?.map(p => p.member_id) || []);
+        const count = uniqueMembers.size;
 
-    // Add pulsing animation if there are expiring members
-    const card = document.querySelector('.stat-card-reminder');
-    if (count > 0) {
-        card.style.cursor = 'pointer';
-        card.classList.add('stat-card-pulse');
-    } else {
-        card.style.cursor = 'default';
-        card.classList.remove('stat-card-pulse');
+        const countEl = document.getElementById('expiring-soon-count');
+        if (countEl) countEl.textContent = count;
+
+        // Add pulsing animation if there are expiring members
+        const card = document.querySelector('.stat-card-reminder');
+        if (card) {
+            if (count > 0) {
+                card.style.cursor = 'pointer';
+                card.classList.add('stat-card-pulse');
+            } else {
+                card.style.cursor = 'default';
+                card.classList.remove('stat-card-pulse');
+            }
+        }
+    } catch (err) {
+        console.error('[EXPIRING] Error loading expiring count:', err);
     }
 }
 
 // NEW: Show Expiring Members Modal
 window.showExpiringMembers = async function () {
-    const today = new Date();
-    const sevenDaysLater = new Date(today);
-    sevenDaysLater.setDate(today.getDate() + 7);
-
-    const { data: expiringPayments } = await supabase
-        .from('payments')
-        .select(`
-member_id,
-    expiration_date,
-    members(first_name, last_name, contact)
-        `)
-        .gte('expiration_date', today.toISOString())
-        .lte('expiration_date', sevenDaysLater.toISOString())
-        .order('expiration_date', { ascending: true });
-
     const tbody = document.getElementById('expiring-members-body');
-    tbody.innerHTML = '';
+    const modal = document.getElementById('expiring-modal');
 
-    if (!expiringPayments || expiringPayments.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="4" class="empty-state">No hay alumnos próximos a vencer</td></tr>';
-    } else {
-        // Group by member_id to avoid duplicates
-        const memberMap = new Map();
-        expiringPayments.forEach(p => {
-            if (!memberMap.has(p.member_id)) {
-                memberMap.set(p.member_id, p);
-            }
-        });
+    if (!tbody || !modal) return;
 
-        memberMap.forEach(payment => {
-            const expDate = new Date(payment.expiration_date);
-            const daysLeft = Math.ceil((expDate - today) / (1000 * 60 * 60 * 24));
-            const memberName = payment.members ? `${payment.members.first_name} ${payment.members.last_name}` : 'Desconocido';
-            const contact = payment.members?.contact || '-';
+    tbody.innerHTML = '<tr><td colspan="4"><div class="spinner"></div></td></tr>';
+    modal.classList.remove('hidden');
 
-            const tr = document.createElement('tr');
-            tr.innerHTML = `
-                <td>${memberName}</td>
-                <td>${contact}</td>
-                <td>${expDate.toLocaleDateString('es-AR')}</td>
-                <td class="${daysLeft <= 3 ? 'text-danger' : 'text-warning'}">${daysLeft} días</td>
-            `;
-            tbody.appendChild(tr);
-        });
+    try {
+        const today = new Date();
+        const sevenDaysLater = new Date(today);
+        sevenDaysLater.setDate(today.getDate() + 7);
+
+        const { data: expiringPayments, error } = await supabase
+            .from('payments')
+            .select(`
+                member_id,
+                expiration_date,
+                members(first_name, last_name, contact)
+            `)
+            .gte('expiration_date', today.toISOString())
+            .lte('expiration_date', sevenDaysLater.toISOString())
+            .order('expiration_date', { ascending: true });
+
+        tbody.innerHTML = '';
+
+        if (error) {
+            tbody.innerHTML = `<tr><td colspan="4">Error: ${error.message}</td></tr>`;
+            return;
+        }
+
+        if (!expiringPayments || expiringPayments.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="4" class="empty-state">No hay alumnos próximos a vencer</td></tr>';
+        } else {
+            // Group by member_id to avoid duplicates
+            const memberMap = new Map();
+            expiringPayments.forEach(p => {
+                if (!memberMap.has(p.member_id)) {
+                    memberMap.set(p.member_id, p);
+                }
+            });
+
+            memberMap.forEach(payment => {
+                const expDate = new Date(payment.expiration_date);
+                const daysLeft = Math.ceil((expDate - today) / (1000 * 60 * 60 * 24));
+                const memberName = payment.members ? `${payment.members.first_name} ${payment.members.last_name}` : 'Desconocido';
+                const contact = payment.members?.contact || '-';
+
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td>${memberName}</td>
+                    <td>${contact}</td>
+                    <td>${expDate.toLocaleDateString('es-AR')}</td>
+                    <td class="${daysLeft <= 3 ? 'text-danger' : 'text-warning'}">${daysLeft} días</td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+    } catch (err) {
+        console.error('[EXPIRING MODAL] Error:', err);
+        tbody.innerHTML = '<tr><td colspan="4">Error al cargar datos</td></tr>';
     }
-
-    document.getElementById('expiring-modal').classList.remove('hidden');
 }
 
 window.closeExpiringModal = function () {
@@ -781,119 +808,143 @@ let paymentMethodsChartInstance = null;
 
 async function loadPaymentMethodsChart() {
     const chartContainer = document.getElementById('payment-methods-chart');
+    if (!chartContainer) return;
+
     // Show spinner
     chartContainer.innerHTML = '<div class="spinner"></div>';
 
-    const { data: payments } = await supabase
-        .from('payments')
-        .select('payment_method')
-        .eq('month_year', getCurrentMonthISO());
+    try {
+        const { data: payments, error } = await supabase
+            .from('payments')
+            .select('payment_method')
+            .eq('month_year', getCurrentMonthISO());
 
-    // Restore canvas container
-    chartContainer.innerHTML = '<canvas id="paymentMethodsChart"></canvas>';
+        if (error) {
+            console.error('[CHART] Error loading payment methods:', error.message);
+            chartContainer.innerHTML = '<p class="empty-state">Error al cargar</p>';
+            return;
+        }
 
-    if (!payments || payments.length === 0) {
-        chartContainer.innerHTML = '<p class="empty-state">No hay datos</p>';
-        return;
-    }
+        // Restore canvas container
+        chartContainer.innerHTML = '<canvas id="paymentMethodsChart"></canvas>';
 
-    // Count by method
-    const methodCounts = {};
-    payments.forEach(p => {
-        const method = p.payment_method || 'Efectivo';
-        methodCounts[method] = (methodCounts[method] || 0) + 1;
-    });
+        if (!payments || payments.length === 0) {
+            chartContainer.innerHTML = '<p class="empty-state">No hay datos</p>';
+            return;
+        }
 
-    const ctx = document.getElementById('paymentMethodsChart').getContext('2d');
+        // Count by method
+        const methodCounts = {};
+        payments.forEach(p => {
+            const method = p.payment_method || 'Efectivo';
+            methodCounts[method] = (methodCounts[method] || 0) + 1;
+        });
 
-    if (paymentMethodsChartInstance) {
-        paymentMethodsChartInstance.destroy();
-    }
+        const ctx = document.getElementById('paymentMethodsChart').getContext('2d');
 
-    paymentMethodsChartInstance = new Chart(ctx, {
-        type: 'doughnut',
-        data: {
-            labels: Object.keys(methodCounts),
-            datasets: [{
-                data: Object.values(methodCounts),
-                backgroundColor: [
-                    'rgba(255, 214, 0, 0.8)',
-                    'rgba(255, 99, 132, 0.8)',
-                    'rgba(54, 162, 235, 0.8)',
-                    'rgba(75, 192, 192, 0.8)',
-                    'rgba(153, 102, 255, 0.8)'
-                ],
-                borderColor: '#1a1a1a',
-                borderWidth: 2
-            }]
-        },
-        options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            animation: {
-                duration: 400  // Reduced from default 1000ms
+        if (paymentMethodsChartInstance) {
+            paymentMethodsChartInstance.destroy();
+        }
+
+        paymentMethodsChartInstance = new Chart(ctx, {
+            type: 'doughnut',
+            data: {
+                labels: Object.keys(methodCounts),
+                datasets: [{
+                    data: Object.values(methodCounts),
+                    backgroundColor: [
+                        'rgba(255, 214, 0, 0.8)',
+                        'rgba(255, 99, 132, 0.8)',
+                        'rgba(54, 162, 235, 0.8)',
+                        'rgba(75, 192, 192, 0.8)',
+                        'rgba(153, 102, 255, 0.8)'
+                    ],
+                    borderColor: '#1a1a1a',
+                    borderWidth: 2
+                }]
             },
-            plugins: {
-                legend: {
-                    position: 'bottom',
-                    labels: {
-                        color: '#fff',
-                        font: { size: 11 }  // Smaller font
-                    }
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                animation: {
+                    duration: 400  // Reduced from default 1000ms
                 },
-                tooltip: {
-                    enabled: true,
-                    callbacks: {
-                        label: function (context) {
-                            return `${context.label}: ${context.parsed}`;
+                plugins: {
+                    legend: {
+                        position: 'bottom',
+                        labels: {
+                            color: '#fff',
+                            font: { size: 11 }  // Smaller font
+                        }
+                    },
+                    tooltip: {
+                        enabled: true,
+                        callbacks: {
+                            label: function (context) {
+                                return `${context.label}: ${context.parsed}`;
+                            }
                         }
                     }
+                },
+                // Performance optimization
+                interaction: {
+                    mode: 'nearest',
+                    intersect: true
                 }
-            },
-            // Performance optimization
-            interaction: {
-                mode: 'nearest',
-                intersect: true
             }
-        }
-    });
+        });
+    } catch (err) {
+        console.error('[CHART] Error loading payment methods chart:', err);
+        chartContainer.innerHTML = '<p class="empty-state">Error al cargar gráfico</p>';
+    }
 }
 
 // NEW: Retention Statistics
 async function loadRetentionStats() {
+    const rateEl = document.getElementById('retention-rate');
+    const newEl = document.getElementById('new-members-count');
+    const churnedEl = document.getElementById('churned-members-count');
+
     // Show loading state
-    document.getElementById('retention-rate').innerHTML = '<div class="spinner" style="width:20px;height:20px;border-width:2px;margin:0;"></div>';
-    document.getElementById('new-members-count').textContent = '...';
-    document.getElementById('churned-members-count').textContent = '...';
+    if (rateEl) rateEl.innerHTML = '<div class="spinner" style="width:20px;height:20px;border-width:2px;margin:0;"></div>';
+    if (newEl) newEl.textContent = '...';
+    if (churnedEl) churnedEl.textContent = '...';
 
-    const currentMonth = getCurrentMonthISO();
-    const prevMonth = getPreviousMonth(currentMonth);
+    try {
+        const currentMonth = getCurrentMonthISO();
+        const prevMonth = getPreviousMonth(currentMonth);
 
-    // Get current month payers
-    const { data: currentPayers } = await supabase
-        .from('payments')
-        .select('member_id')
-        .eq('month_year', currentMonth);
+        // Get current month payers
+        const { data: currentPayers } = await supabase
+            .from('payments')
+            .select('member_id')
+            .eq('month_year', currentMonth);
 
-    // Get previous month payers
-    const { data: prevPayers } = await supabase
-        .from('payments')
-        .select('member_id')
-        .eq('month_year', prevMonth);
+        // Get previous month payers
+        const { data: prevPayers } = await supabase
+            .from('payments')
+            .select('member_id')
+            .eq('month_year', prevMonth);
 
-    const currentSet = new Set(currentPayers?.map(p => p.member_id) || []);
-    const prevSet = new Set(prevPayers?.map(p => p.member_id) || []);
+        const currentSet = new Set(currentPayers?.map(p => p.member_id) || []);
+        const prevSet = new Set(prevPayers?.map(p => p.member_id) || []);
 
-    // Calculate retention
-    const retained = [...prevSet].filter(id => currentSet.has(id)).length;
-    const newMembers = [...currentSet].filter(id => !prevSet.has(id)).length;
-    const churned = [...prevSet].filter(id => !currentSet.has(id)).length;
+        // Calculate retention
+        const retained = [...prevSet].filter(id => currentSet.has(id)).length;
+        const newMembers = [...currentSet].filter(id => !prevSet.has(id)).length;
+        const churned = [...prevSet].filter(id => !currentSet.has(id)).length;
 
-    const retentionRate = prevSet.size > 0 ? ((retained / prevSet.size) * 100).toFixed(1) : 0;
+        const retentionRate = prevSet.size > 0 ? ((retained / prevSet.size) * 100).toFixed(1) : 0;
 
-    document.getElementById('retention-rate').textContent = `${retentionRate}%`;
-    document.getElementById('new-members-count').textContent = newMembers;
-    document.getElementById('churned-members-count').textContent = churned;
+        if (rateEl) rateEl.textContent = `${retentionRate}%`;
+        if (newEl) newEl.textContent = newMembers;
+        if (churnedEl) churnedEl.textContent = churned;
+    } catch (err) {
+        console.error('[RETENTION] Error loading retention stats:', err);
+        if (rateEl) rateEl.textContent = '-';
+        if (newEl) newEl.textContent = '-';
+        if (churnedEl) churnedEl.textContent = '-';
+    }
 }
 
 async function loadAnnualSummary() {
@@ -1083,29 +1134,34 @@ async function loadMembers() {
     const tbody = document.getElementById('members-table-body');
     tbody.innerHTML = '<tr><td colspan="5"><div class="spinner"></div></td></tr>';
 
-    // Fetch Active Members
-    const { data: members, error } = await supabase
-        .from('members')
-        .select('*')
-        .eq('active', true)
-        .order('last_name');
+    try {
+        // Fetch Active Members
+        const { data: members, error } = await supabase
+            .from('members')
+            .select('*')
+            .eq('active', true)
+            .order('last_name');
 
-    if (error) {
-        tbody.innerHTML = `< tr > <td colspan="5">Error: ${error.message}</td></tr > `;
-        return;
+        if (error) {
+            tbody.innerHTML = `<tr><td colspan="5">Error: ${error.message}</td></tr>`;
+            return;
+        }
+
+        // Cache them
+        currentMembers = members || [];
+
+        // Load payments for status check
+        await loadMemberPaymentsStatus();
+
+        // Initial Render
+        renderMembersTable(currentMembers);
+
+        // Update Quick Stats Chips immediately
+        updateQuickStats();
+    } catch (err) {
+        console.error('[MEMBERS] Error loading members:', err);
+        tbody.innerHTML = `<tr><td colspan="5">Error al cargar alumnos</td></tr>`;
     }
-
-    // Cache them
-    currentMembers = members;
-
-    // Load payments for status check
-    await loadMemberPaymentsStatus();
-
-    // Initial Render
-    renderMembersTable(currentMembers);
-
-    // Update Quick Stats Chips immediately
-    updateQuickStats();
 }
 
 
@@ -1274,9 +1330,9 @@ function applyMemberFilters(searchTerm = '') {
     // Apply search filter
     if (searchTerm) {
         filtered = filtered.filter(m =>
-            m.first_name.toLowerCase().includes(searchTerm) ||
-            m.last_name.toLowerCase().includes(searchTerm) ||
-            m.contact.toLowerCase().includes(searchTerm)
+            (m.first_name || '').toLowerCase().includes(searchTerm) ||
+            (m.last_name || '').toLowerCase().includes(searchTerm) ||
+            (m.contact || '').toLowerCase().includes(searchTerm)
         );
     }
 
