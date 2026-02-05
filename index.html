@@ -124,6 +124,14 @@
                 </div>
             </div>
             <button id="logout-btn" class="logout-btn">Cerrar Sesión</button>
+            <div class="sidebar-footer" style="padding: 20px; text-align: center; border-top: 1px solid #333;">
+                <p style="color: #666; font-size: 0.8rem; margin-bottom: 10px;">Versión: <span
+                        id="app-version">...</span></p>
+                <button onclick="checkForUpdates()"
+                    style="background: transparent; color: var(--primary); border: 1px solid var(--primary); padding: 5px 10px; border-radius: 4px; cursor: pointer; font-size: 0.75rem;">
+                    🔄 Buscar Actualización
+                </button>
+            </div>
         </nav>
 
         <main class="content">

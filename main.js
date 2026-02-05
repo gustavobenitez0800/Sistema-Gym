@@ -1,4 +1,4 @@
-const { app, BrowserWindow, dialog } = require('electron'); // Added dialog
+const { app, BrowserWindow, dialog, ipcMain } = require('electron'); // Added ipcMain
 const { autoUpdater } = require('electron-updater');
 const log = require('electron-log');
 const path = require('path');
@@ -14,6 +14,16 @@ autoUpdater.autoDownload = true;
 autoUpdater.autoInstallOnAppQuit = true;
 // IMPORTANT: Disable signature verification for unsigned builds
 autoUpdater.verifyUpdateCodeSignature = false;
+
+// --- IPC Handlers for UI ---
+ipcMain.handle('get-app-version', () => {
+    return app.getVersion();
+});
+
+ipcMain.on('manual-check-for-updates', () => {
+    log.info('Manual check for updates triggered from UI');
+    autoUpdater.checkForUpdates();
+});
 
 // Logging events for debugging
 autoUpdater.on('checking-for-update', () => {
@@ -85,8 +95,8 @@ function createWindow() {
 app.whenReady().then(() => {
     createWindow();
 
-    // Check for updates
-    autoUpdater.checkForUpdatesAndNotify();
+    // Check for updates (Quietly on startup, listeners will handle UI)
+    autoUpdater.checkForUpdates();
 
     app.on('activate', () => {
         if (BrowserWindow.getAllWindows().length === 0) {
