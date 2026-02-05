@@ -38,3 +38,11 @@ jobs:
         with:
           name: windows-installer
           path: dist/*.exe
+
+      - name: Publish Release (remove draft)
+        uses: softprops/action-gh-release@v1
+        with:
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
