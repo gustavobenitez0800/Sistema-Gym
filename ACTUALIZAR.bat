@@ -97,7 +97,7 @@ echo Copiando archivos...
 :: /XO = excluir archivos mas antiguos (solo actualiza si es mas nuevo)
 :: /XF = excluir archivos especificos
 :: /XD = excluir directorios
-robocopy "%TEMP%\gym-update\Sistema-Gym-main" "%TARGET_DIR%" /E /XO /XF "update-exclude.txt" "ACTUALIZAR.bat" ".env" /XD ".git" ".vscode" "node_modules"
+robocopy "%TEMP%\gym-update\Sistema-Gym-main" "%TARGET_DIR%" /E /XO /XF "update-exclude.txt" "ACTUALIZAR.bat" ".env" "config.js" /XD ".git" ".vscode" "node_modules"
 
 :: Verificamos el codigo de salida de Robocopy
 :: Robocopy usa codigos de bit. Todo menor a 8 es exito
