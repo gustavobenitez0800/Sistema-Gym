@@ -12,6 +12,8 @@ log.info('App starting...');
 // Crucial for unsigned apps (Windows)
 autoUpdater.autoDownload = true;
 autoUpdater.autoInstallOnAppQuit = true;
+// IMPORTANT: Disable signature verification for unsigned builds
+autoUpdater.verifyUpdateCodeSignature = false;
 
 // Logging events for debugging
 autoUpdater.on('checking-for-update', () => {
