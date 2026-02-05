@@ -1,6 +1,13 @@
 
 import { supabase } from './src/supabaseClient.js';
 import { whatsappService } from './src/whatsappService.js';
+// IPC Renderer for Electron communication
+const { ipcRenderer } = require('electron');
+
+// Global update function for the button
+window.checkForUpdates = () => {
+    ipcRenderer.send('manual-check-for-updates');
+};
 
 // Debug helper - shows errors visually on mobile
 function showDebugError(message, error = null) {
@@ -56,7 +63,54 @@ document.addEventListener('DOMContentLoaded', () => {
         initializeDatePicker();
 
         // NEW: Setup keyboard shortcuts
+        // NEW: Setup keyboard shortcuts
         setupKeyboardShortcuts();
+
+        // Show App Version
+        ipcRenderer.invoke('get-app-version').then(version => {
+            const versionEl = document.getElementById('app-version');
+            if (versionEl) versionEl.textContent = 'v' + version;
+        }).catch(err => console.error(err));
+
+        // --- Custom Update Notification Logic ---
+        const notification = document.getElementById('update-notification');
+        const title = document.getElementById('update-title');
+        const message = document.getElementById('update-message');
+        const actions = document.getElementById('update-actions');
+
+        function showNotification(text, titleText = 'Actualización', isError = false) {
+            if (!notification) return;
+            notification.style.display = 'block';
+            notification.classList.add('show');
+            title.innerHTML = isError ? `<i class="fas fa-exclamation-triangle"></i> ${titleText}` : `<i class="fas fa-cloud-download-alt"></i> ${titleText}`;
+            message.textContent = text;
+
+            if (isError) {
+                notification.style.borderLeftColor = 'var(--danger)';
+                title.style.color = 'var(--danger)';
+            } else {
+                notification.style.borderLeftColor = 'var(--primary)';
+                title.style.color = 'var(--primary)';
+            }
+        }
+
+        ipcRenderer.on('update_available', () => {
+            showNotification('Nueva versión disponible. Descargando en segundo plano...', 'Actualizando');
+            actions.innerHTML = `<button class="btn-dismiss" onclick="document.getElementById('update-notification').classList.remove('show')">Ocultar</button>`;
+        });
+
+        ipcRenderer.on('update_downloaded', () => {
+            showNotification('La actualización está lista para instalarse.', 'Actualización Lista');
+            actions.innerHTML = `
+                <button class="btn-update" onclick="ipcRenderer.send('restart_app')">Reiniciar Ahora</button>
+                <button class="btn-dismiss" onclick="document.getElementById('update-notification').classList.remove('show')">Más tarde</button>
+            `;
+        });
+
+        ipcRenderer.on('update_error', (event, err) => {
+            showNotification('Error al actualizar: ' + err, 'Error', true);
+            actions.innerHTML = `<button class="btn-dismiss" onclick="document.getElementById('update-notification').classList.remove('show')">Cerrar</button>`;
+        });
     } catch (err) {
         showDebugError('Error en inicialización', err);
     }
