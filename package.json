@@ -1,7 +1,11 @@
 {
   "name": "ayd-funcional-gym",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "description": "Sistema de Gestion AyD Funcional Gym 2026",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/gustavobenitez0800/Sistema-Gym.git"
+  },
   "main": "main.js",
   "scripts": {
     "start": "electron .",

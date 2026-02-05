@@ -1,4 +1,4 @@
-const { app, BrowserWindow } = require('electron');
+const { app, BrowserWindow, dialog } = require('electron'); // Added dialog
 const { autoUpdater } = require('electron-updater');
 const log = require('electron-log');
 const path = require('path');
@@ -22,6 +22,11 @@ autoUpdater.on('checking-for-update', () => {
 
 autoUpdater.on('update-available', (info) => {
     log.info('Update available.', info);
+    dialog.showMessageBox({
+        type: 'info',
+        title: 'Actualización Disponible',
+        message: 'Una nueva versión está disponible. Descargando ahora...'
+    });
 });
 
 autoUpdater.on('update-not-available', (info) => {
@@ -30,6 +35,11 @@ autoUpdater.on('update-not-available', (info) => {
 
 autoUpdater.on('error', (err) => {
     log.error('Error in auto-updater. ' + err);
+    dialog.showMessageBox({
+        type: 'error',
+        title: 'Error de Actualización',
+        message: 'Hubo un error al buscar actualizaciones: ' + err
+    });
 });
 
 autoUpdater.on('download-progress', (progressObj) => {
@@ -41,6 +51,19 @@ autoUpdater.on('download-progress', (progressObj) => {
 
 autoUpdater.on('update-downloaded', (info) => {
     log.info('Update downloaded', info);
+    const dialogOpts = {
+        type: 'info',
+        buttons: ['Reiniciar', 'Más tarde'],
+        title: 'Actualización Lista',
+        message: 'Nueva versión descargada',
+        detail: 'La actualización se ha descargado. Reinicia la aplicación para aplicar los cambios.'
+    };
+
+    dialog.showMessageBox(dialogOpts).then((returnValue) => {
+        if (returnValue.response === 0) {
+            autoUpdater.quitAndInstall();
+        }
+    });
 });
 
 function createWindow() {
