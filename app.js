@@ -1654,16 +1654,21 @@ window.openPaymentModal = (id, name) => {
 };
 
 // Quick amount selection
-window.setQuickAmount = (amount) => {
+window.setQuickAmount = (amount, btnElement) => {
     document.getElementById('payment-amount').value = amount;
     // Visual feedback
     document.querySelectorAll('.quick-amount-btn').forEach(btn => {
         btn.style.transform = 'scale(1)';
         btn.style.background = 'transparent';
+        btn.style.color = 'var(--primary)'; // Reset color
+        btn.style.border = '1px solid var(--primary)';
     });
-    event.target.style.transform = 'scale(1.1)';
-    event.target.style.background = 'var(--primary)';
-    event.target.style.color = '#000';
+
+    if (btnElement) {
+        btnElement.style.transform = 'scale(1.05)';
+        btnElement.style.background = 'var(--primary)';
+        btnElement.style.color = '#000';
+    }
 }
 
 function generatePaymentMonthOptions() {
@@ -1717,10 +1722,12 @@ async function handleAddPayment(e) {
     // NEW: Validate that expiration is after payment date
     const paymentDate = new Date(payment_date_val);
     const expirationDate = new Date(expiration_date_val);
+    /* 
     if (expirationDate <= paymentDate) {
         ui.alert('La fecha de vencimiento debe ser posterior a la fecha de pago', 'error');
         return;
     }
+    */
 
     // NEW: Check if student already paid for this month
     const { data: existingPayments, error: checkError } = await supabase
@@ -1895,10 +1902,12 @@ async function handleEditPayment(e) {
     // Validate that expiration is after payment date
     const paymentDate = new Date(payment_date_val);
     const expirationDate = new Date(expiration_date_val);
+    /*
     if (expirationDate <= paymentDate) {
         ui.alert('La fecha de vencimiento debe ser posterior a la fecha de pago', 'error');
         return;
     }
+    */
 
     // Disable button to prevent double submission
     const submitBtn = e.target.querySelector('button[type="submit"]');
@@ -2080,85 +2089,96 @@ function renderDetailedView(payments, tbody) {
 
 // --- PDF Export Logic ---
 window.exportMonthlyReport = () => {
-    const { jsPDF } = window.jspdf;
-    const doc = new jsPDF();
+    try {
+        const { jsPDF } = window.jspdf;
+        const doc = new jsPDF();
 
-    // Title
-    doc.setFontSize(18);
-    doc.text(`Reporte Mensual - ${document.getElementById('current-month-display').textContent}`, 14, 22);
+        // Title
+        doc.setFontSize(18);
+        doc.text(`Reporte Mensual - ${document.getElementById('current-month-display').textContent}`, 14, 22);
 
-    // Summary Headers
-    doc.setFontSize(12);
-    doc.text(`Total Alumnos Pagos: ${document.getElementById('total-members').textContent}`, 14, 32);
-    doc.text(`Balance: ${document.getElementById('monthly-balance').textContent}`, 14, 40);
+        // Summary Headers
+        doc.setFontSize(12);
+        doc.text(`Total Alumnos Pagos: ${document.getElementById('total-members').textContent}`, 14, 32);
+        doc.text(`Balance: ${document.getElementById('monthly-balance').textContent}`, 14, 40);
 
-    const elem = document.querySelector('.small-table table');
-    doc.autoTable({
-        html: elem,
-        startY: 50,
-        theme: 'grid',
-        headStyles: { fillColor: [255, 215, 0], textColor: [0, 0, 0] }
-    });
+        const elem = document.querySelector('.small-table table');
+        doc.autoTable({
+            html: elem,
+            startY: 50,
+            theme: 'grid',
+            headStyles: { fillColor: [255, 215, 0], textColor: [0, 0, 0] }
+        });
 
-    doc.save(`reporte_${getCurrentMonthISO()}.pdf`);
+        doc.save(`reporte_${getCurrentMonthISO()}.pdf`);
+        ui.alert('Reporte exportado correctamente', 'success');
+    } catch (err) {
+        console.error('Export Error:', err);
+        ui.alert('Error al exportar PDF: ' + err.message, 'error');
+    }
 }
 
 // Export Payments to PDF
 window.exportPaymentsToPDF = () => {
-    const { jsPDF } = window.jspdf;
-    const doc = new jsPDF();
+    try {
+        const { jsPDF } = window.jspdf;
+        const doc = new jsPDF();
 
-    const monthDisplay = document.getElementById('payments-month-display').textContent;
-    const paymentsTotal = document.getElementById('payments-total').textContent;
-    const paymentsCount = document.getElementById('payments-count').textContent;
+        const monthDisplay = document.getElementById('payments-month-display').textContent;
+        const paymentsTotal = document.getElementById('payments-total').textContent;
+        const paymentsCount = document.getElementById('payments-count').textContent;
 
-    // Title
-    doc.setFontSize(18);
-    doc.setTextColor(255, 215, 0);
-    doc.text('AyD Funcional Gym', 14, 20);
+        // Title
+        doc.setFontSize(18);
+        doc.setTextColor(255, 215, 0);
+        doc.text('AyD Funcional Gym', 14, 20);
 
-    doc.setFontSize(14);
-    doc.setTextColor(255, 255, 255);
-    doc.text(`Historial de Pagos - ${monthDisplay}`, 14, 30);
+        doc.setFontSize(14);
+        doc.setTextColor(255, 255, 255);
+        doc.text(`Historial de Pagos - ${monthDisplay}`, 14, 30);
 
-    // Summary
-    doc.setFontSize(11);
-    doc.setTextColor(180, 180, 180);
-    doc.text(`Total Recaudado: ${paymentsTotal}`, 14, 42);
-    doc.text(`Cantidad de Pagos: ${paymentsCount}`, 14, 50);
-    doc.text(`Fecha de exportación: ${new Date().toLocaleDateString('es-AR')}`, 14, 58);
+        // Summary
+        doc.setFontSize(11);
+        doc.setTextColor(180, 180, 180);
+        doc.text(`Total Recaudado: ${paymentsTotal}`, 14, 42);
+        doc.text(`Cantidad de Pagos: ${paymentsCount}`, 14, 50);
+        doc.text(`Fecha de exportación: ${new Date().toLocaleDateString('es-AR')}`, 14, 58);
 
-    // Table
-    const table = document.querySelector('#payments-history-body');
-    const rows = table.querySelectorAll('tr');
+        // Table
+        const table = document.querySelector('#payments-history-body');
+        const rows = table.querySelectorAll('tr');
 
-    const tableData = [];
-    rows.forEach(row => {
-        const cells = row.querySelectorAll('td');
-        if (cells.length >= 5) {
-            tableData.push([
-                cells[0].textContent.trim(),
-                cells[1].textContent.trim(),
-                cells[2].textContent.trim(),
-                cells[3].textContent.trim(),
-                cells[4].textContent.trim()
-            ]);
-        }
-    });
+        const tableData = [];
+        rows.forEach(row => {
+            const cells = row.querySelectorAll('td');
+            if (cells.length >= 5) {
+                tableData.push([
+                    cells[0].textContent.trim(),
+                    cells[1].textContent.trim(),
+                    cells[2].textContent.trim(),
+                    cells[3].textContent.trim(),
+                    cells[4].textContent.trim()
+                ]);
+            }
+        });
 
-    doc.autoTable({
-        head: [['Fecha', 'Alumno', 'Mes Pagado', 'Método', 'Monto']],
-        body: tableData,
-        startY: 65,
-        theme: 'grid',
-        headStyles: { fillColor: [255, 215, 0], textColor: [0, 0, 0], fontStyle: 'bold' },
-        bodyStyles: { textColor: [200, 200, 200] },
-        alternateRowStyles: { fillColor: [30, 30, 30] },
-        styles: { fillColor: [20, 20, 20] }
-    });
+        doc.autoTable({
+            head: [['Fecha', 'Alumno', 'Mes Pagado', 'Método', 'Monto']],
+            body: tableData,
+            startY: 65,
+            theme: 'grid',
+            headStyles: { fillColor: [255, 215, 0], textColor: [0, 0, 0], fontStyle: 'bold' },
+            bodyStyles: { textColor: [200, 200, 200] },
+            alternateRowStyles: { fillColor: [30, 30, 30] },
+            styles: { fillColor: [20, 20, 20] }
+        });
 
-    doc.save(`pagos_${getCurrentMonthISO()}.pdf`);
-    ui.alert('PDF exportado correctamente', 'success');
+        doc.save(`pagos_${getCurrentMonthISO()}.pdf`);
+        ui.alert('PDF exportado correctamente', 'success');
+    } catch (err) {
+        console.error('Export Error:', err);
+        ui.alert('Error al exportar PDF: ' + err.message, 'error');
+    }
 }
 
 // Export Payments to Excel (CSV format for universal compatibility)
