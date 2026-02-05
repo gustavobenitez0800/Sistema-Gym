@@ -28,8 +28,13 @@
     "productName": "AyD Funcional Gym",
     "win": {
       "target": "nsis",
-      "icon": "assets/icon.ico"
+      "icon": "assets/icon.png"
     },
+    "asar": false,
+    "extraFiles": [
+      "ACTUALIZAR.bat",
+      "update-exclude.txt"
+    ],
     "directories": {
       "output": "dist"
     }
