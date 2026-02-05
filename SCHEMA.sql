@@ -129,3 +129,7 @@ CREATE INDEX IF NOT EXISTS idx_attendance_member_id ON attendance(member_id);
 -- =============================================================================
 -- Fin del Schema
 -- =============================================================================
+
+-- 6. Actualizaciones para WhatsApp Automation (Ejecutar si ya existe la DB)
+ALTER TABLE payments ADD COLUMN IF NOT EXISTS warning_sent BOOLEAN DEFAULT false;
+ALTER TABLE payments ADD COLUMN IF NOT EXISTS expiration_sent BOOLEAN DEFAULT false;

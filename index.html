@@ -7,7 +7,8 @@
     <title>AyD Funcional Gym - Gestión 2026</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <link rel="icon" type="image/x-icon" href="./img/Logo.png">
-    <link rel="stylesheet" href="style.css?v=5.0">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <link rel="stylesheet" href="style.css?v=8.0">
 </head>
 
 <body>
@@ -47,6 +48,8 @@
                 <li onclick="showSection('dashboard')" class="active-nav">📊 Dashboard</li>
                 <li onclick="showSection('members')">👥 Alumnos</li>
                 <li onclick="showSection('payments')">💰 Pagos</li>
+                <li onclick="checkAndShowNotifications(true)">🔔 Notificaciones <span id="nav-notification-badge"
+                        class="nav-badge hidden"></span></li>
             </ul>
             <div class="month-selector-container">
                 <label>Fecha de Operación</label>
@@ -177,9 +180,35 @@
                         <h2>Gestión de Alumnos - <span id="members-month-display">Enero 2026</span></h2>
                     </div>
                     <div class="header-actions">
-                        <input type="text" id="search-member-input" placeholder="🔍 Buscar alumno..."
-                            class="search-input">
-                        <button class="btn-primary" onclick="openAddMemberModal()">+ Nuevo Alumno</button>
+                        <input type="text" id="search-member-input"
+                            placeholder="🔍 Buscar por nombre, apellido o contacto..." class="search-input"
+                            autocomplete="off">
+                        <button class="btn-secondary" onclick="exportMembersToExcel()"
+                            title="Exportar lista de alumnos">
+                            <i class="fas fa-file-excel"></i> Exportar
+                        </button>
+                        <button class="btn-primary" onclick="openAddMemberModal()" title="Agregar nuevo alumno (Alt+N)">
+                            <i class="fas fa-user-plus"></i> Nuevo Alumno
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Quick Stats Bar -->
+                <div class="quick-stats-bar">
+                    <div class="quick-stat">
+                        <span class="quick-stat-icon">✅</span>
+                        <span class="quick-stat-value" id="quick-paid-count">0</span>
+                        <span class="quick-stat-label">Al día</span>
+                    </div>
+                    <div class="quick-stat warning">
+                        <span class="quick-stat-icon">⚠️</span>
+                        <span class="quick-stat-value" id="quick-overdue-count">0</span>
+                        <span class="quick-stat-label">Vencidos</span>
+                    </div>
+                    <div class="quick-stat info">
+                        <span class="quick-stat-icon">📊</span>
+                        <span class="quick-stat-value" id="quick-total-count">0</span>
+                        <span class="quick-stat-label">Total</span>
                     </div>
                 </div>
 
@@ -229,6 +258,22 @@
                         </tbody>
                     </table>
                 </div>
+
+                <!-- Pagination Controls -->
+                <div class="pagination-controls">
+                    <button id="prev-page-btn" class="pagination-btn" onclick="changePage(-1)" disabled>
+                        ❮ Anterior
+                    </button>
+                    <span id="page-indicator" class="page-indicator">Página 1 de 1</span>
+                    <button id="next-page-btn" class="pagination-btn" onclick="changePage(1)">
+                        Siguiente ❯
+                    </button>
+                </div>
+
+                <!-- Member Count Badge -->
+                <div class="member-count-container">
+                    <span id="member-count-badge" class="member-count-badge">0 alumnos</span>
+                </div>
             </section>
 
             <!-- Payments Section (Historial) -->
@@ -236,6 +281,12 @@
                 <div class="header-row">
                     <h2>Historial de Pagos - <span id="payments-month-display">Enero 2026</span></h2>
                     <div class="header-actions">
+                        <button class="btn-secondary" onclick="exportPaymentsToExcel()">
+                            <i class="fas fa-file-excel"></i> Exportar Excel
+                        </button>
+                        <button class="btn-primary" onclick="exportPaymentsToPDF()">
+                            📄 Exportar PDF
+                        </button>
                     </div>
                 </div>
 
@@ -304,35 +355,54 @@
     <div id="payment-modal" class="modal hidden">
         <div class="modal-content">
             <span class="close-btn" onclick="closePaymentModal()">&times;</span>
-            <h2>Registrar Pago</h2>
-            <h3 id="payment-member-name">Alumno</h3>
+            <h2>💰 Registrar Pago</h2>
+            <h3 id="payment-member-name" class="payment-member-highlight">Alumno</h3>
             <form id="payment-form">
                 <input type="hidden" id="payment-member-id">
 
-                <label>Mes que está pagando</label>
-                <select id="payment-month" required>
-                    <!-- Options populated by JS -->
-                </select>
+                <div class="form-group">
+                    <label><i class="fas fa-calendar-alt"></i> Mes que está pagando</label>
+                    <select id="payment-month" required>
+                        <!-- Options populated by JS -->
+                    </select>
+                </div>
 
-                <label>Fecha en que realizó el pago</label>
-                <input type="date" id="payment-date-input" required style="margin-bottom: 5px;">
+                <div class="form-row">
+                    <div class="form-group half">
+                        <label><i class="fas fa-calendar-check"></i> Fecha del pago</label>
+                        <input type="date" id="payment-date-input" required>
+                    </div>
+                    <div class="form-group half">
+                        <label><i class="fas fa-calendar-times"></i> Vencimiento</label>
+                        <input type="date" id="payment-expiration-input" required>
+                    </div>
+                </div>
 
-                <label>Fecha de vencimiento del acceso</label>
-                <input type="date" id="payment-expiration-input" required style="margin-bottom: 15px;">
+                <div class="form-group">
+                    <label><i class="fas fa-credit-card"></i> Método de pago</label>
+                    <select id="payment-method-select">
+                        <option value="Efectivo">💵 Efectivo</option>
+                        <option value="Transferencia">🏦 Transferencia</option>
+                        <option value="Tarjeta">💳 Tarjeta</option>
+                        <option value="Mercado Pago">📱 Mercado Pago</option>
+                        <option value="Otro">📋 Otro</option>
+                    </select>
+                </div>
 
-                <label>Método de pago</label>
-                <select id="payment-method-select" style="margin-bottom: 15px;">
-                    <option value="Efectivo">Efectivo</option>
-                    <option value="Transferencia">Transferencia</option>
-                    <option value="Tarjeta">Tarjeta</option>
-                    <option value="Mercado Pago">Mercado Pago</option>
-                    <option value="Otro">Otro</option>
-                </select>
+                <div class="form-group">
+                    <label><i class="fas fa-dollar-sign"></i> Monto</label>
+                    <input type="number" id="payment-amount" placeholder="Ingrese el monto" required>
+                    <div class="quick-amounts">
+                        <button type="button" class="quick-amount-btn" onclick="setQuickAmount(15000)">$15.000</button>
+                        <button type="button" class="quick-amount-btn" onclick="setQuickAmount(17000)">$17.000</button>
+                        <button type="button" class="quick-amount-btn" onclick="setQuickAmount(20000)">$20.000</button>
+                        <button type="button" class="quick-amount-btn" onclick="setQuickAmount(25000)">$25.000</button>
+                    </div>
+                </div>
 
-                <label>Monto</label>
-                <input type="number" id="payment-amount" placeholder="Monto" required>
-
-                <button type="submit">Registrar Pago</button>
+                <button type="submit" class="btn-submit">
+                    <i class="fas fa-check"></i> Registrar Pago
+                </button>
             </form>
         </div>
     </div>
@@ -438,7 +508,7 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.29/jspdf.plugin.autotable.min.js"></script>
 
-    <script type="module" src="app.js"></script>
+    <script type="module" src="app.js?v=14.0"></script>
 </body>
 
 </html>

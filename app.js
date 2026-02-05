@@ -1,5 +1,6 @@
 
 import { supabase } from './src/supabaseClient.js';
+import { whatsappService } from './src/whatsappService.js';
 
 // Debug helper - shows errors visually on mobile
 function showDebugError(message, error = null) {
@@ -120,7 +121,7 @@ function initializeDatePicker() {
         const yyyy = currentDate.getFullYear();
         const mm = String(currentDate.getMonth() + 1).padStart(2, '0');
         const dd = String(currentDate.getDate()).padStart(2, '0');
-        datePicker.value = `${yyyy} -${mm} -${dd} `;
+        datePicker.value = `${yyyy}-${mm}-${dd}`;
     }
 }
 
@@ -171,7 +172,7 @@ window.changeGlobalMonth = function (offset) {
 function transformDate(dateObj) {
     const year = dateObj.getFullYear();
     const month = String(dateObj.getMonth() + 1).padStart(2, '0');
-    return `${year} -${month} `;
+    return `${year}-${month}`;
 }
 
 function getCurrentMonthISO() {
@@ -191,7 +192,7 @@ function getFullDateDisplay() {
     const monthName = months[currentDate.getMonth()];
     const year = currentDate.getFullYear();
 
-    return `${dayName}, ${day} de ${monthName} ${year} `;
+    return `${dayName}, ${day} de ${monthName} ${year}`;
 }
 
 function updateMonthDisplays() {
@@ -214,7 +215,7 @@ function updateMonthDisplays() {
 function getMonthName(yyyy_mm) {
     const [year, month] = yyyy_mm.split('-');
     const names = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
-    return `${names[parseInt(month) - 1]} ${year} `;
+    return `${names[parseInt(month) - 1]} ${year}`;
 }
 
 function getPreviousMonth(yyyy_mm) {
@@ -224,7 +225,7 @@ function getPreviousMonth(yyyy_mm) {
         month = 12;
         year -= 1;
     }
-    return `${year} -${String(month).padStart(2, '0')} `;
+    return `${year}-${String(month).padStart(2, '0')}`;
 }
 
 // --- Auth ---
@@ -314,69 +315,262 @@ window.showSection = (sectionId, event) => {
 };
 
 // --- Dashboard ---
+let dbRepaired = false; // Track if repair was already done this session
+
 async function loadDashboard() {
-    // 1. Get Payments for Current Selected Month
-    const { data: currentPayments, error: currErr } = await supabase
-        .from('payments')
-        .select('amount, member_id')
-        .eq('month_year', getCurrentMonthISO());
+    console.log('[DASHBOARD] Iniciando carga del dashboard...');
+    console.log('[DASHBOARD] Mes actual:', getCurrentMonthISO());
 
-    if (currErr) return;
-
-    // Calculate Active Members (those who paid this month)
-    const activeMemberIds = new Set(currentPayments.map(p => p.member_id));
-    const activeCount = activeMemberIds.size;
-
-    // Calculate Balance
-    let totalBalance = 0;
-    currentPayments.forEach(p => totalBalance += parseFloat(p.amount));
-
-    // Update UI Stats
-    document.getElementById('total-members').textContent = `${activeCount} Pagos`;
-    document.getElementById('monthly-balance').textContent = formatCurrency(totalBalance);
-
-    // 2. Growth Logic (Active vs Previous Month)
-    const prevMonth = getPreviousMonth(getCurrentMonthISO());
-    const { data: prevPayments } = await supabase
-        .from('payments')
-        .select('member_id')
-        .eq('month_year', prevMonth);
-
-    let prevActiveCount = 0;
-    if (prevPayments) {
-        prevActiveCount = new Set(prevPayments.map(p => p.member_id)).size;
+    // ===== AUTO-REPAIR (runs once per session) =====
+    if (!dbRepaired) {
+        dbRepaired = true;
+        console.log('[REPAIR] Ejecutando reparación automática de month_year...');
+        try {
+            const { data: allPayments } = await supabase.from('payments').select('id, month_year');
+            if (allPayments && allPayments.length > 0) {
+                for (const p of allPayments) {
+                    if (p.month_year && p.month_year.includes(' ')) {
+                        const cleaned = p.month_year.replace(/\s/g, '');
+                        await supabase.from('payments').update({ month_year: cleaned }).eq('id', p.id);
+                        console.log(`[REPAIR] Corregido: "${p.month_year}" -> "${cleaned}"`);
+                    }
+                }
+            }
+            console.log('[REPAIR] Reparación completada.');
+        } catch (e) {
+            console.error('[REPAIR] Error en reparación:', e);
+        }
     }
 
+    // Get DOM elements
+    const totalMembersEl = document.getElementById('total-members');
+    const balanceEl = document.getElementById('monthly-balance');
     const growthEl = document.getElementById('growth-stat');
-    if (prevActiveCount === 0) {
-        growthEl.textContent = activeCount > 0 ? "100% vs mes anterior" : "0% vs mes anterior";
-        growthEl.className = activeCount > 0 ? "text-success" : "";
-    } else {
-        const diff = activeCount - prevActiveCount;
-        const percent = ((diff / prevActiveCount) * 100).toFixed(1);
-        growthEl.textContent = `${percent > 0 ? '+' : ''}${percent}% vs mes anterior`;
-        growthEl.className = percent >= 0 ? "text-success" : "text-danger";
+    const overdueEl = document.getElementById('overdue-count');
+
+    // Show spinners
+    if (totalMembersEl) totalMembersEl.innerHTML = '<div class="spinner" style="width:20px;height:20px;border-width:2px;margin:0;"></div>';
+    if (balanceEl) balanceEl.innerHTML = '<div class="spinner" style="width:20px;height:20px;border-width:2px;margin:0;"></div>';
+
+    try {
+        // ========== 1. BALANCE MENSUAL ==========
+        console.log('[DASHBOARD] Consultando pagos del mes:', getCurrentMonthISO());
+        const { data: currentPayments, error: currErr } = await supabase
+            .from('payments')
+            .select('amount, member_id')
+            .eq('month_year', getCurrentMonthISO());
+
+        console.log('[DASHBOARD] Pagos encontrados:', currentPayments?.length || 0, 'Error:', currErr?.message || 'ninguno');
+
+        let totalBalance = 0;
+        if (!currErr && currentPayments && currentPayments.length > 0) {
+            currentPayments.forEach(p => totalBalance += parseFloat(p.amount || 0));
+        }
+        if (balanceEl) balanceEl.textContent = formatCurrency(totalBalance);
+        console.log('[DASHBOARD] Balance calculado:', totalBalance);
+
+        // ========== 2. MIEMBROS ACTIVOS ==========
+        const todayISO = new Date().toISOString();
+        console.log('[DASHBOARD] Fecha hoy (ISO):', todayISO);
+
+        const { data: activePayments, error: activeErr } = await supabase
+            .from('payments')
+            .select('member_id, expiration_date')
+            .gte('expiration_date', todayISO);
+
+        console.log('[DASHBOARD] Pagos activos (exp >= hoy):', activePayments?.length || 0, 'Error:', activeErr?.message || 'ninguno');
+
+        // Update global activeMemberIds for other functions
+        activeMemberIds = new Set(activePayments?.map(p => p.member_id) || []);
+        const activeCount = activeMemberIds.size;
+
+        if (totalMembersEl) totalMembersEl.textContent = `${activeCount} Activos`;
+        console.log('[DASHBOARD] Miembros activos únicos:', activeCount);
+
+        // ========== 3. CRECIMIENTO ==========
+        const currentMonth = getCurrentMonthISO();
+        const prevMonth = getPreviousMonth(currentMonth);
+        console.log('[DASHBOARD] Comparando:', currentMonth, 'vs', prevMonth);
+
+        const { data: currMonthPays } = await supabase.from('payments').select('member_id').eq('month_year', currentMonth);
+        const { data: prevMonthPays } = await supabase.from('payments').select('member_id').eq('month_year', prevMonth);
+
+        const currCount = new Set(currMonthPays?.map(p => p.member_id) || []).size;
+        const prevCount = new Set(prevMonthPays?.map(p => p.member_id) || []).size;
+
+        console.log('[DASHBOARD] Pagadores este mes:', currCount, 'mes anterior:', prevCount);
+
+        if (growthEl) {
+            if (prevCount === 0) {
+                growthEl.textContent = currCount > 0 ? "Nuevo mes" : "Sin datos previos";
+                growthEl.className = currCount > 0 ? "text-success" : "";
+            } else {
+                const pct = (((currCount - prevCount) / prevCount) * 100).toFixed(1);
+                growthEl.textContent = `${pct > 0 ? '+' : ''}${pct}% vs mes anterior`;
+                growthEl.className = pct >= 0 ? "text-success" : "text-danger";
+            }
+        }
+
+        // ========== 4. VENCIDOS ==========
+        const { count: totalMembers, error: memErr } = await supabase
+            .from('members')
+            .select('*', { count: 'exact', head: true })
+            .eq('active', true);
+
+        console.log('[DASHBOARD] Total miembros activos en DB:', totalMembers, 'Error:', memErr?.message || 'ninguno');
+
+        const overdueCount = Math.max(0, (totalMembers || 0) - activeCount);
+        if (overdueEl) overdueEl.textContent = overdueCount;
+        console.log('[DASHBOARD] Vencidos calculados:', overdueCount);
+
+    } catch (err) {
+        console.error('[DASHBOARD] ERROR CRÍTICO:', err);
+        if (totalMembersEl) totalMembersEl.textContent = "Error";
+        if (balanceEl) balanceEl.textContent = "Error";
     }
 
-    // 3. Overdue Count (Real Active Members vs Paid Members)
-    const { count: totalSystemMembers } = await supabase
-        .from('members')
-        .select('*', { count: 'exact', head: true })
-        .eq('active', true);
+    // ========== WIDGETS SECUNDARIOS ==========
+    console.log('[DASHBOARD] Cargando widgets secundarios...');
+    try { await loadExpiringSoonCount(); } catch (e) { console.error('[WIDGET] loadExpiringSoonCount error:', e); }
+    try { await loadPaymentMethodsChart(); } catch (e) { console.error('[WIDGET] loadPaymentMethodsChart error:', e); }
+    try { await loadRetentionStats(); } catch (e) { console.error('[WIDGET] loadRetentionStats error:', e); }
+    try { checkAndShowNotifications(); } catch (e) { console.error('[WIDGET] checkAndShowNotifications error:', e); }
+    try { loadAnnualSummary(); } catch (e) { console.error('[WIDGET] loadAnnualSummary error:', e); }
 
-    const overdueCount = (totalSystemMembers || 0) - activeCount;
-    document.getElementById('overdue-count').textContent = overdueCount > 0 ? overdueCount : 0;
-
-    // 4. NEW: Expiring Soon Count (7 days)
-    await loadExpiringSoonCount();
-
-    // 5. NEW: Load Widgets
-    await loadPaymentMethodsChart();
-    await loadRetentionStats();
-
-    // 6. Load Annual Summary Table
-    loadAnnualSummary();
+    console.log('[DASHBOARD] Carga completa.');
 }
+
+// ==========================================
+// DIAGNÓSTICO DEL SISTEMA
+// ==========================================
+window.runDiagnostics = async function () {
+    const results = [];
+    results.push("=== DIAGNÓSTICO DEL SISTEMA ===\n");
+
+    try {
+        // 1. Verificar conexión a Supabase
+        results.push("1. Verificando conexión a Supabase...");
+
+        // 2. Consultar TODOS los pagos sin filtro
+        const { data: allPayments, error: payErr } = await supabase
+            .from('payments')
+            .select('*')
+            .order('created_at', { ascending: false })
+            .limit(10);
+
+        if (payErr) {
+            results.push(`   ❌ Error en payments: ${payErr.message}`);
+        } else if (!allPayments || allPayments.length === 0) {
+            results.push("   ⚠️ La tabla 'payments' está VACÍA o RLS bloquea todo.");
+        } else {
+            results.push(`   ✅ Encontrados ${allPayments.length} pagos recientes.`);
+            const sample = allPayments[0];
+            results.push(`   📋 Último pago:`);
+            results.push(`      - month_year: "${sample.month_year}"`);
+            results.push(`      - expiration_date: "${sample.expiration_date}"`);
+            results.push(`      - amount: ${sample.amount}`);
+        }
+
+        // 3. Consultar miembros
+        const { count: memberCount, error: memErr } = await supabase
+            .from('members')
+            .select('*', { count: 'exact', head: true });
+
+        if (memErr) {
+            results.push(`   ❌ Error en members: ${memErr.message}`);
+        } else {
+            results.push(`\n2. Miembros en DB: ${memberCount || 0}`);
+        }
+
+        // 4. Verificar mes actual
+        const currentMonth = getCurrentMonthISO();
+        results.push(`\n3. Mes actual seleccionado: "${currentMonth}"`);
+
+        // 5. Pagos del mes actual
+        const { data: thisMonthPayments } = await supabase
+            .from('payments')
+            .select('amount')
+            .eq('month_year', currentMonth);
+
+        results.push(`   Pagos encontrados para ${currentMonth}: ${thisMonthPayments?.length || 0}`);
+
+        if (thisMonthPayments && thisMonthPayments.length > 0) {
+            const total = thisMonthPayments.reduce((sum, p) => sum + parseFloat(p.amount), 0);
+            results.push(`   Balance calculado: ${formatCurrency(total)}`);
+        }
+
+    } catch (err) {
+        results.push(`\n❌ ERROR CRÍTICO: ${err.message}`);
+    }
+
+    // Mostrar resultados
+    alert(results.join('\n'));
+    console.log(results.join('\n'));
+
+    // Ofrecer reparación si hay problema de espacios
+    if (confirm('¿Desea ejecutar la reparación automática de la base de datos?\n\nEsto corregirá espacios en el campo month_year.')) {
+        await repairDatabase();
+    }
+};
+
+// ==========================================
+// REPARACIÓN DE BASE DE DATOS
+// ==========================================
+window.repairDatabase = async function () {
+    console.log('[REPAIR] Iniciando reparación de la base de datos...');
+
+    try {
+        // 1. Obtener todos los pagos
+        const { data: allPayments, error } = await supabase
+            .from('payments')
+            .select('id, month_year');
+
+        if (error) {
+            alert('Error al obtener pagos: ' + error.message);
+            return;
+        }
+
+        if (!allPayments || allPayments.length === 0) {
+            alert('No hay pagos para reparar.');
+            return;
+        }
+
+        let repaired = 0;
+
+        // 2. Buscar y corregir registros con espacios
+        for (const payment of allPayments) {
+            const original = payment.month_year;
+            // Eliminar TODOS los espacios
+            const cleaned = original ? original.replace(/\s/g, '') : null;
+
+            if (original !== cleaned && cleaned) {
+                console.log(`[REPAIR] Corrigiendo: "${original}" -> "${cleaned}"`);
+
+                const { error: updateError } = await supabase
+                    .from('payments')
+                    .update({ month_year: cleaned })
+                    .eq('id', payment.id);
+
+                if (!updateError) {
+                    repaired++;
+                } else {
+                    console.error('[REPAIR] Error actualizando:', updateError);
+                }
+            }
+        }
+
+        const msg = `✅ REPARACIÓN COMPLETADA\n\nRegistros corregidos: ${repaired} de ${allPayments.length}\n\nRecargando dashboard...`;
+        alert(msg);
+        console.log(msg);
+
+        // 3. Recargar el dashboard
+        loadDashboard();
+
+    } catch (err) {
+        alert('Error durante la reparación: ' + err.message);
+        console.error('[REPAIR] Error:', err);
+    }
+};
 
 // NEW: Expiring Soon Count
 async function loadExpiringSoonCount() {
@@ -440,16 +634,16 @@ member_id,
         memberMap.forEach(payment => {
             const expDate = new Date(payment.expiration_date);
             const daysLeft = Math.ceil((expDate - today) / (1000 * 60 * 60 * 24));
-            const memberName = payment.members ? `${payment.members.first_name} ${payment.members.last_name} ` : 'Desconocido';
+            const memberName = payment.members ? `${payment.members.first_name} ${payment.members.last_name}` : 'Desconocido';
             const contact = payment.members?.contact || '-';
 
             const tr = document.createElement('tr');
             tr.innerHTML = `
-    < td > ${memberName}</td >
+                <td>${memberName}</td>
                 <td>${contact}</td>
                 <td>${expDate.toLocaleDateString('es-AR')}</td>
                 <td class="${daysLeft <= 3 ? 'text-danger' : 'text-warning'}">${daysLeft} días</td>
-`;
+            `;
             tbody.appendChild(tr);
         });
     }
@@ -467,13 +661,20 @@ window.closeExpiringModal = function () {
 let paymentMethodsChartInstance = null;
 
 async function loadPaymentMethodsChart() {
+    const chartContainer = document.getElementById('payment-methods-chart');
+    // Show spinner
+    chartContainer.innerHTML = '<div class="spinner"></div>';
+
     const { data: payments } = await supabase
         .from('payments')
         .select('payment_method')
         .eq('month_year', getCurrentMonthISO());
 
+    // Restore canvas container
+    chartContainer.innerHTML = '<canvas id="paymentMethodsChart"></canvas>';
+
     if (!payments || payments.length === 0) {
-        document.getElementById('payment-methods-chart').innerHTML = '<p class="empty-state">No hay datos</p>';
+        chartContainer.innerHTML = '<p class="empty-state">No hay datos</p>';
         return;
     }
 
@@ -541,6 +742,11 @@ async function loadPaymentMethodsChart() {
 
 // NEW: Retention Statistics
 async function loadRetentionStats() {
+    // Show loading state
+    document.getElementById('retention-rate').innerHTML = '<div class="spinner" style="width:20px;height:20px;border-width:2px;margin:0;"></div>';
+    document.getElementById('new-members-count').textContent = '...';
+    document.getElementById('churned-members-count').textContent = '...';
+
     const currentMonth = getCurrentMonthISO();
     const prevMonth = getPreviousMonth(currentMonth);
 
@@ -566,26 +772,32 @@ async function loadRetentionStats() {
 
     const retentionRate = prevSet.size > 0 ? ((retained / prevSet.size) * 100).toFixed(1) : 0;
 
-    document.getElementById('retention-rate').textContent = `${retentionRate}% `;
+    document.getElementById('retention-rate').textContent = `${retentionRate}%`;
     document.getElementById('new-members-count').textContent = newMembers;
     document.getElementById('churned-members-count').textContent = churned;
 }
 
 async function loadAnnualSummary() {
     const tbody = document.getElementById('annual-stats-body');
+    const chartWrapper = document.querySelector('.chart-wrapper');
     const selectedYear = currentDate.getFullYear();
 
     // Update Header
-    document.querySelector('.annual-summary h3').textContent = `Balance Anual ${selectedYear} `;
+    document.querySelector('.annual-summary h3').textContent = `Balance Anual ${selectedYear}`;
 
-    tbody.innerHTML = '<tr><td colspan="4"><div class="spinner"></div></td></tr>';
+    // Show loading states
+    tbody.innerHTML = '<tr><td colspan="4" class="text-center"><div class="spinner"></div> Cargando datos...</td></tr>';
+    chartWrapper.innerHTML = '<div class="spinner"></div>';
 
     // Fetch payments for the SELECTED YEAR
     // We use a LIKE query for "YYYY-%"
     const { data: allYearPayments, error } = await supabase
         .from('payments')
         .select('month_year, amount, member_id')
-        .like('month_year', `${selectedYear} -% `);
+        .like('month_year', `${selectedYear}-%`);
+
+    // Restore chart canvas
+    chartWrapper.innerHTML = '<canvas id="incomeChart"></canvas>';
 
     if (error) {
         tbody.innerHTML = '<tr><td colspan="4">Error al cargar datos anuales</td></tr>';
@@ -596,7 +808,7 @@ async function loadAnnualSummary() {
     const statsByMonth = {};
     // Init months 1-12 for selectedYear
     for (let i = 1; i <= 12; i++) {
-        const m = `${selectedYear} -${String(i).padStart(2, '0')} `;
+        const m = `${selectedYear}-${String(i).padStart(2, '0')}`;
         statsByMonth[m] = { income: 0, distinctMembers: new Set() };
     }
 
@@ -628,7 +840,7 @@ async function loadAnnualSummary() {
             } else {
                 const diff = count - prevC;
                 const pct = ((diff / prevC) * 100).toFixed(0);
-                growthText = `${pct > 0 ? '+' : ''}${pct}% `;
+                growthText = `${pct > 0 ? '+' : ''}${pct}%`;
                 growthClass = pct >= 0 ? "text-success" : "text-danger";
             }
         }
@@ -636,7 +848,7 @@ async function loadAnnualSummary() {
         // Feature: Click to navigate
         const tr = document.createElement('tr');
         tr.className = 'annual-row';
-        tr.title = `Clic para ver ${getMonthName(m)} `;
+        tr.title = `Clic para ver ${getMonthName(m)}`;
         tr.onclick = () => {
             // Calculate difference in months from current view to clicked month
             const [tYear, tMonth] = m.split('-').map(Number);
@@ -772,6 +984,9 @@ async function loadMembers() {
 
     // Initial Render
     renderMembersTable(currentMembers);
+
+    // Update Quick Stats Chips immediately
+    updateQuickStats();
 }
 
 
@@ -850,7 +1065,7 @@ function renderPagination() {
             : '<span class="status-badge overdue">Vencido</span>';
 
         const safeNotes = member.notes ? member.notes.replace(/'/g, "\\'") : '';
-        const fullName = `${member.first_name} ${member.last_name} `;
+        const fullName = `${member.first_name} ${member.last_name}`;
         const safeFirstName = member.first_name.replace(/'/g, "\\'");
         const safeLastName = member.last_name.replace(/'/g, "\\'");
         const safeContact = member.contact.replace(/'/g, "\\'");
@@ -880,7 +1095,10 @@ function renderPagination() {
             <td>${member.contact}${scheduleDisplay}</td>
             <td>${statusBadge}</td>
             <td>
-                <button class="action-btn" title="Editar" onclick="openEditMemberModal('${member.id}', '${safeFirstName}', '${safeLastName}', '${safeContact}', '${safeScheduleTime}', '${safeAttendanceDays}')">✏️</button>
+                <button class="action-btn" title="Enviar WhatsApp" onclick="sendQuickWhatsApp('${member.id}', '${safeFirstName}', '${safeContact}', ${isOverdue})">
+                    <i class="fab fa-whatsapp" style="color:#25D366; font-size:1.1em;"></i>
+                </button>
+                <button class="action-btn" title="Editar" onclick="openEditMemberModal('${member.id}')">✏️</button>
                 <button class="action-btn" title="Pagar" onclick="openPaymentModal('${member.id}', '${fullName}')">💰</button>
                 <button class="action-btn" title="Observaciones Médicas" onclick="openNotesModal('${member.id}', '${fullName}', '${safeNotes}')">🩺</button>
                 <button class="action-btn btn-delete" title="Eliminar Alumno" onclick="deleteMember('${member.id}')">🗑️</button>
@@ -891,7 +1109,7 @@ function renderPagination() {
 
     // 3. Update Controls
     const maxPages = Math.ceil(filteredMembersCache.length / ITEMS_PER_PAGE) || 1;
-    document.getElementById('page-indicator').textContent = `Página ${currentPage} de ${maxPages} `;
+    document.getElementById('page-indicator').textContent = `Página ${currentPage} de ${maxPages}`;
     document.getElementById('prev-page-btn').disabled = currentPage === 1;
     document.getElementById('next-page-btn').disabled = currentPage === maxPages;
 
@@ -958,6 +1176,60 @@ function applyMemberFilters(searchTerm = '') {
             badge.textContent = `${filteredCount} de ${totalCount} alumnos`;
         }
     }
+
+    // Update Quick Stats Bar
+    updateQuickStats();
+}
+
+// Update Quick Stats in Members Section
+function updateQuickStats() {
+    const paidCount = currentMembers.filter(m => activeMemberIds.has(m.id)).length;
+    const overdueCount = currentMembers.filter(m => !activeMemberIds.has(m.id)).length;
+    const totalCount = currentMembers.length;
+
+    const paidEl = document.getElementById('quick-paid-count');
+    const overdueEl = document.getElementById('quick-overdue-count');
+    const totalEl = document.getElementById('quick-total-count');
+
+    if (paidEl) paidEl.textContent = paidCount;
+    if (overdueEl) overdueEl.textContent = overdueCount;
+    if (totalEl) totalEl.textContent = totalCount;
+}
+
+// Export Members to Excel (CSV)
+window.exportMembersToExcel = () => {
+    // CSV Header
+    let csvContent = '\uFEFF'; // BOM for UTF-8
+    csvContent += 'Nombre,Apellido,Contacto,Estado,Horario,Notas\n';
+
+    currentMembers.forEach(member => {
+        const status = activeMemberIds.has(member.id) ? 'Al día' : 'Vencido';
+        const schedule = member.schedule_time || '-';
+        const notes = member.notes ? member.notes.replace(/"/g, '""') : '';
+
+        const rowData = [
+            `"${member.first_name}"`,
+            `"${member.last_name}"`,
+            `"${member.contact}"`,
+            `"${status}"`,
+            `"${schedule}"`,
+            `"${notes}"`
+        ];
+        csvContent += rowData.join(',') + '\n';
+    });
+
+    // Create and download file
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    const url = URL.createObjectURL(blob);
+    link.setAttribute('href', url);
+    link.setAttribute('download', `alumnos_${getCurrentMonthISO()}.csv`);
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+
+    ui.alert('Lista de alumnos exportada correctamente', 'success');
 }
 
 // New: Apply sorting to members array
@@ -1121,9 +1393,9 @@ async function handleAddMember(e) {
     const schedule_time = document.getElementById('new-schedule-time').value || null;
     const attendance_days = JSON.stringify(getSelectedDays('new-days-selector'));
 
-    const { error } = await supabase.from('members').insert([{
+    const { data: newMemberData, error } = await supabase.from('members').insert([{
         first_name, last_name, contact, schedule_time, attendance_days
-    }]);
+    }]).select().single();
 
     // Re-enable button
     submitBtn.disabled = false;
@@ -1137,17 +1409,54 @@ async function handleAddMember(e) {
         loadMembers();
         loadDashboard();
         e.target.reset();
+
+        // WhatsApp Automation: Welcome Message
+        if (newMemberData && newMemberData.contact) {
+            const confirmed = await ui.confirm(`¿Deseas enviar un mensaje de bienvenida a ${newMemberData.first_name} por WhatsApp?`);
+            if (confirmed) {
+                const msg = whatsappService.getWelcomeMessage(newMemberData);
+                whatsappService.sendWhatsApp(newMemberData.contact, msg);
+            }
+        }
     }
 }
 
 // --- Edit Member ---
-window.openEditMemberModal = async (id, firstName, lastName, contact, scheduleTime = '', attendanceDays = '[]') => {
-    document.getElementById('edit-member-id').value = id;
-    document.getElementById('edit-name').value = firstName;
-    document.getElementById('edit-lastname').value = lastName;
-    document.getElementById('edit-contact').value = contact;
-    document.getElementById('edit-schedule-time').value = scheduleTime || '';
-    setSelectedDays('edit-days-selector', attendanceDays);
+window.openEditMemberModal = async (id) => {
+    // Lookup member in cache
+    const member = currentMembers.find(m => m.id === id);
+    if (!member) {
+        ui.alert('Error: No se encontraron datos del alumno.', 'error');
+        return;
+    }
+
+    document.getElementById('edit-member-id').value = member.id;
+    document.getElementById('edit-name').value = member.first_name;
+    document.getElementById('edit-lastname').value = member.last_name;
+    document.getElementById('edit-contact').value = member.contact;
+    document.getElementById('edit-schedule-time').value = member.schedule_time || '';
+
+    // Safely parse attendance days
+    let days = [];
+    try {
+        if (member.attendance_days) {
+            days = JSON.parse(member.attendance_days);
+        }
+    } catch (e) {
+        console.error('Error parsing attendance days', e);
+    }
+
+    // Reset all checkboxes first
+    document.querySelectorAll('#edit-days-selector input[type="checkbox"]').forEach(cb => cb.checked = false);
+
+    // Check correct ones
+    if (Array.isArray(days)) {
+        days.forEach(day => {
+            const cb = document.querySelector(`#edit-days-selector input[value="${day}"]`);
+            if (cb) cb.checked = true;
+        });
+    }
+
     document.getElementById('edit-member-modal').classList.remove('hidden');
 };
 
@@ -1243,7 +1552,7 @@ window.openPaymentModal = (id, name) => {
     const yyyy = today.getFullYear();
     const mm = String(today.getMonth() + 1).padStart(2, '0');
     const dd = String(today.getDate()).padStart(2, '0');
-    document.getElementById('payment-date-input').value = `${yyyy} -${mm} -${dd} `;
+    document.getElementById('payment-date-input').value = `${yyyy}-${mm}-${dd}`;
 
     // Default Expiration -> +1 Month
     const exp = new Date(today);
@@ -1251,8 +1560,21 @@ window.openPaymentModal = (id, name) => {
     const e_yyyy = exp.getFullYear();
     const e_mm = String(exp.getMonth() + 1).padStart(2, '0');
     const e_dd = String(exp.getDate()).padStart(2, '0');
-    document.getElementById('payment-expiration-input').value = `${e_yyyy} -${e_mm} -${e_dd} `;
+    document.getElementById('payment-expiration-input').value = `${e_yyyy}-${e_mm}-${e_dd}`;
 };
+
+// Quick amount selection
+window.setQuickAmount = (amount) => {
+    document.getElementById('payment-amount').value = amount;
+    // Visual feedback
+    document.querySelectorAll('.quick-amount-btn').forEach(btn => {
+        btn.style.transform = 'scale(1)';
+        btn.style.background = 'transparent';
+    });
+    event.target.style.transform = 'scale(1.1)';
+    event.target.style.background = 'var(--primary)';
+    event.target.style.color = '#000';
+}
 
 function generatePaymentMonthOptions() {
     const select = document.getElementById('payment-month');
@@ -1354,6 +1676,17 @@ async function handleAddPayment(e) {
         loadMembers();
         loadDashboard();
         e.target.reset();
+
+        // WhatsApp Automation: Payment Confirmation
+        const member = currentMembers.find(m => m.id === member_id);
+        if (member && member.contact) {
+            const confirmed = await ui.confirm(`¿Deseas enviar una confirmación de pago a ${member.first_name} por WhatsApp?`);
+            if (confirmed) {
+                const monthName = getMonthName(month_year);
+                const msg = whatsappService.getPaymentConfirmationMessage(member, amount, monthName);
+                whatsappService.sendWhatsApp(member.contact, msg);
+            }
+        }
     }
 }
 
@@ -1410,6 +1743,25 @@ async function handleSaveNotes(e) {
         loadMembers(); // Refresh to update the onclick attribute if we were using it, though we switched to fetch.
     }
 }
+
+// --- Quick WhatsApp from Table ---
+// --- Quick WhatsApp from Table ---
+window.sendQuickWhatsApp = (id, paramsFirstName, paramsContact, isOverdue) => {
+    // Construct a temporary member object to match service expectation
+    const mockMember = { first_name: paramsFirstName };
+
+    // Use the service to generate consistent messages
+    let msg = "";
+    if (isOverdue) {
+        // Use the standard expiration message
+        msg = whatsappService.getExpirationMessage(mockMember);
+    } else {
+        // Use a friendly custom message for active members
+        msg = whatsappService.getCustomMessage(mockMember, "Esperamos que estés disfrutando de tus entrenamientos. 💪\n\nCualquier consulta estamos a tu disposición.");
+    }
+
+    whatsappService.sendWhatsApp(paramsContact, msg);
+};
 
 // --- Edit Payment ---
 window.openEditPaymentModal = (paymentId, paymentDate, expirationDate, memberName, monthName, amount) => {
@@ -1643,12 +1995,12 @@ window.exportMonthlyReport = () => {
 
     // Title
     doc.setFontSize(18);
-    doc.text(`Reporte Mensual - ${document.getElementById('current-month-display').textContent} `, 14, 22);
+    doc.text(`Reporte Mensual - ${document.getElementById('current-month-display').textContent}`, 14, 22);
 
     // Summary Headers
     doc.setFontSize(12);
-    doc.text(`Total Alumnos Pagos: ${document.getElementById('total-members').textContent} `, 14, 32);
-    doc.text(`Balance: ${document.getElementById('monthly-balance').textContent} `, 14, 40);
+    doc.text(`Total Alumnos Pagos: ${document.getElementById('total-members').textContent}`, 14, 32);
+    doc.text(`Balance: ${document.getElementById('monthly-balance').textContent}`, 14, 40);
 
     const elem = document.querySelector('.small-table table');
     doc.autoTable({
@@ -1659,6 +2011,102 @@ window.exportMonthlyReport = () => {
     });
 
     doc.save(`reporte_${getCurrentMonthISO()}.pdf`);
+}
+
+// Export Payments to PDF
+window.exportPaymentsToPDF = () => {
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF();
+
+    const monthDisplay = document.getElementById('payments-month-display').textContent;
+    const paymentsTotal = document.getElementById('payments-total').textContent;
+    const paymentsCount = document.getElementById('payments-count').textContent;
+
+    // Title
+    doc.setFontSize(18);
+    doc.setTextColor(255, 215, 0);
+    doc.text('AyD Funcional Gym', 14, 20);
+
+    doc.setFontSize(14);
+    doc.setTextColor(255, 255, 255);
+    doc.text(`Historial de Pagos - ${monthDisplay}`, 14, 30);
+
+    // Summary
+    doc.setFontSize(11);
+    doc.setTextColor(180, 180, 180);
+    doc.text(`Total Recaudado: ${paymentsTotal}`, 14, 42);
+    doc.text(`Cantidad de Pagos: ${paymentsCount}`, 14, 50);
+    doc.text(`Fecha de exportación: ${new Date().toLocaleDateString('es-AR')}`, 14, 58);
+
+    // Table
+    const table = document.querySelector('#payments-history-body');
+    const rows = table.querySelectorAll('tr');
+
+    const tableData = [];
+    rows.forEach(row => {
+        const cells = row.querySelectorAll('td');
+        if (cells.length >= 5) {
+            tableData.push([
+                cells[0].textContent.trim(),
+                cells[1].textContent.trim(),
+                cells[2].textContent.trim(),
+                cells[3].textContent.trim(),
+                cells[4].textContent.trim()
+            ]);
+        }
+    });
+
+    doc.autoTable({
+        head: [['Fecha', 'Alumno', 'Mes Pagado', 'Método', 'Monto']],
+        body: tableData,
+        startY: 65,
+        theme: 'grid',
+        headStyles: { fillColor: [255, 215, 0], textColor: [0, 0, 0], fontStyle: 'bold' },
+        bodyStyles: { textColor: [200, 200, 200] },
+        alternateRowStyles: { fillColor: [30, 30, 30] },
+        styles: { fillColor: [20, 20, 20] }
+    });
+
+    doc.save(`pagos_${getCurrentMonthISO()}.pdf`);
+    ui.alert('PDF exportado correctamente', 'success');
+}
+
+// Export Payments to Excel (CSV format for universal compatibility)
+window.exportPaymentsToExcel = () => {
+    const monthDisplay = document.getElementById('payments-month-display').textContent;
+    const table = document.querySelector('#payments-history-body');
+    const rows = table.querySelectorAll('tr');
+
+    // CSV Header
+    let csvContent = '\uFEFF'; // BOM for UTF-8
+    csvContent += 'Fecha de Pago,Alumno,Mes Pagado,Método,Monto\n';
+
+    rows.forEach(row => {
+        const cells = row.querySelectorAll('td');
+        if (cells.length >= 5) {
+            const rowData = [
+                `"${cells[0].textContent.trim()}"`,
+                `"${cells[1].textContent.trim()}"`,
+                `"${cells[2].textContent.trim()}"`,
+                `"${cells[3].textContent.trim()}"`,
+                `"${cells[4].textContent.trim()}"`
+            ];
+            csvContent += rowData.join(',') + '\n';
+        }
+    });
+
+    // Create and download file
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    const url = URL.createObjectURL(blob);
+    link.setAttribute('href', url);
+    link.setAttribute('download', `pagos_${getCurrentMonthISO()}.csv`);
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+
+    ui.alert('Excel (CSV) exportado correctamente', 'success');
 }
 
 
@@ -1888,3 +2336,219 @@ if (typeof MutationObserver !== 'undefined') {
         setTimeout(refreshMobileTableLabels, 100);
     });
 }
+
+// --- WhatsApp Automation & Notification Center ---
+
+
+
+function showNotificationModal(notifications) {
+    // Create Modal HTML dynamically if not exists
+    let modal = document.getElementById('notification-center-modal');
+    if (!modal) {
+        modal = document.createElement('div');
+        modal.id = 'notification-center-modal';
+        modal.className = 'modal'; // Reuse existing modal class
+
+        modal.innerHTML = `
+            <div class="modal-content" style="max-width: 700px;">
+                <span class="close-btn" onclick="document.getElementById('notification-center-modal').remove()">&times;</span>
+                <h2>🔔 Centro de Notificaciones</h2>
+                <p style="margin-bottom:15px; color:#aaa;">Se han detectado avisos automáticos pendientes de enviar.</p>
+                
+                <div class="table-container" style="max-height: 400px; overflow-y: auto;">
+                    <table style="width:100%; border-collapse:collapse;">
+                        <thead>
+                            <tr style="text-align:left; border-bottom:1px solid #444;">
+                                <th style="padding:10px;">Alumno</th>
+                                <th>Motivo</th>
+                                <th>Contacto</th>
+                                <th style="text-align:center;">Acción</th>
+                            </tr>
+                        </thead>
+                        <tbody id="notification-list-body"></tbody>
+                    </table>
+                </div>
+                <div style="margin-top:20px; text-align:right;">
+                    <button class="btn-primary" onclick="document.getElementById('notification-center-modal').remove()">Cerrar</button>
+                    <!-- Future: Send All button -->
+                </div>
+            </div>
+        `;
+        document.body.appendChild(modal);
+    }
+
+    const tbody = modal.querySelector('#notification-list-body');
+    tbody.innerHTML = '';
+
+    notifications.forEach((notif, index) => {
+        const tr = document.createElement('tr');
+        tr.style.borderBottom = '1px solid #333';
+        const typeLabel = notif.type === 'warning'
+            ? '<span style="color:#FFD700; font-size:0.9em;">⚠️ Vence pronto</span>'
+            : '<span style="color:#ff4444; font-size:0.9em;">⛔ Vencido</span>';
+
+        tr.innerHTML = `
+            <td style="padding:10px;">${notif.member.first_name} ${notif.member.last_name}</td>
+            <td>${typeLabel}</td>
+            <td>${notif.member.contact}</td>
+            <td style="text-align:center;">
+                <button class="action-btn btn-whatsapp" id="btn-send-${index}" title="Enviar WhatsApp">
+                    <i class="fab fa-whatsapp"></i> Contactar por WhatsApp
+                </button>
+            </td>
+        `;
+
+        tbody.appendChild(tr);
+
+        // Attach listener
+        const btn = tr.querySelector(`#btn-send-${index}`);
+        btn.onclick = async () => {
+            // 1. Send WA
+            whatsappService.sendWhatsApp(notif.member.contact, notif.message);
+
+            // 2. Mark as sent in DB
+            const updateField = notif.type === 'warning' ? 'warning_sent' : 'expiration_sent';
+
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fas fa-check" style="color:#4caf50;"></i>';
+
+            await supabase
+                .from('payments')
+                .update({ [updateField]: true })
+                .eq('id', notif.paymentId);
+        };
+    });
+
+    modal.classList.remove('hidden');
+    modal.classList.add('active'); // Ensure display
+    modal.style.display = 'flex'; // Force flex for centering (if logic differs from .modal class)
+}
+
+// --- Refactored Notification Logic ---
+
+window.checkAndShowNotifications = async function (forceShow = false) {
+    console.log("Checking for notifications... Force:", forceShow);
+    const today = new Date();
+
+    // Calculate dates for Warning (7 days from now)
+    const startWarning = new Date(today); startWarning.setDate(today.getDate() + 6);
+    const endWarning = new Date(today); endWarning.setDate(today.getDate() + 8);
+
+    // Fetch Warnings
+    const { data: warningPayments } = await supabase
+        .from('payments')
+        .select(`
+            id, expiration_date, member_id, 
+            members!inner(id, first_name, last_name, contact, active)
+        `)
+        .eq('warning_sent', false)
+        .eq('members.active', true)
+        .gte('expiration_date', startWarning.toISOString())
+        .lte('expiration_date', endWarning.toISOString());
+
+    // Fetch Expired (Not Sent)
+    const { data: expiredPayments } = await supabase
+        .from('payments')
+        .select(`
+            id, expiration_date, member_id, created_at,
+            members!inner(id, first_name, last_name, contact, active)
+        `)
+        .eq('expiration_sent', false)
+        .eq('members.active', true)
+        .lt('expiration_date', today.toISOString())
+        .order('created_at', { ascending: false }); // Latest first
+
+    const notifications = [];
+    const processedMembers = new Set(); // To avoid duplicates per run
+
+    // 1. Process Expired First (Priority)
+    if (expiredPayments) {
+        expiredPayments.forEach(p => {
+            if (!p.members.active) return;
+            if (processedMembers.has(p.member_id)) return; // Skip if already processed
+
+            notifications.push({
+                type: 'expiration',
+                paymentId: p.id,
+                member: p.members,
+                date: p.expiration_date,
+                message: whatsappService.getExpirationMessage(p.members)
+            });
+            processedMembers.add(p.member_id);
+        });
+    }
+
+    // 2. Process Warnings
+    if (warningPayments) {
+        warningPayments.forEach(p => {
+            if (!p.members.active) return;
+            if (processedMembers.has(p.member_id)) return;
+
+            notifications.push({
+                type: 'warning',
+                paymentId: p.id,
+                member: p.members,
+                date: p.expiration_date,
+                message: whatsappService.getWarningMessage(p.members, p.expiration_date)
+            });
+            processedMembers.add(p.member_id);
+        });
+    }
+
+    // Update Badge
+    const badge = document.getElementById('nav-notification-badge');
+    if (badge) {
+        if (notifications.length > 0) {
+            badge.textContent = notifications.length;
+            badge.classList.remove('hidden');
+        } else {
+            badge.classList.add('hidden');
+        }
+    }
+
+    // ONLY show modal if user explicitly clicked (forceShow = true)
+    if (forceShow) {
+        if (notifications.length === 0) {
+            ui.alert("✅ No hay notificaciones pendientes. ¡Todos los alumnos están al día!", "success");
+            return;
+        }
+        showNotificationModal(notifications);
+    }
+    // If forceShow is false, we just update the badge silently without interrupting the user
+}
+
+// ==========================================
+// UX ENHANCEMENTS: Modal Close Handlers
+// ==========================================
+
+// Close modals with ESC key
+document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+        // Close all visible modals
+        document.querySelectorAll('.modal:not(.hidden)').forEach(modal => {
+            modal.classList.add('hidden');
+        });
+        // Close alert overlays
+        const alertOverlay = document.getElementById('alert-overlay');
+        if (alertOverlay) alertOverlay.remove();
+        // Close notification modal
+        const notifModal = document.getElementById('notification-center-modal');
+        if (notifModal) notifModal.remove();
+    }
+});
+
+// Close modal when clicking outside the content
+document.addEventListener('click', (e) => {
+    if (e.target.classList.contains('modal') && !e.target.classList.contains('hidden')) {
+        e.target.classList.add('hidden');
+    }
+});
+
+// Prevent close when clicking inside modal content
+document.querySelectorAll('.modal-content').forEach(content => {
+    content.addEventListener('click', (e) => {
+        e.stopPropagation();
+    });
+});
+
+console.log('[APP] Sistema de Gimnasio v13.0 cargado correctamente.');

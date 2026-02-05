@@ -1,0 +1,58 @@
+/* WhatsApp Brand Button */
+.btn-whatsapp {
+    background: #25D366 !important;
+    color: white !important;
+    border: none !important;
+    font-weight: bold;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 16px !important;
+    transition: all 0.3s ease;
+    text-transform: none;
+}
+
+.btn-whatsapp:hover {
+    background: #128C7E !important;
+    transform: scale(1.05);
+    box-shadow: 0 4px 15px rgba(37, 211, 102, 0.4);
+}
+
+.btn-whatsapp i {
+    font-size: 1.2rem;
+}
+
+/* Fix Dashboard Card Overflow */
+.stat-card {
+    min-width: 0;
+    /* Important for grid/flex wrap */
+    align-items: flex-start;
+    /* Align top if text wraps */
+    /* Stack on small screens if needed, but row usually better */
+}
+
+.stat-content {
+    min-width: 0;
+    /* Allow text truncate */
+    width: 100%;
+    overflow: hidden;
+    /* Ensure overflow hidden works */
+}
+
+.stat-value {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    font-size: clamp(1.5rem, 4vw, 2rem);
+    /* Dynamic font sizing */
+    display: block;
+    /* Ensure block model for ellipsis */
+    max-width: 100%;
+}
+
+@media (min-width: 1400px) {
+    .stats-grid {
+        grid-template-columns: repeat(4, 1fr);
+        /* Force 4 cols on wide screens */
+    }
+}
