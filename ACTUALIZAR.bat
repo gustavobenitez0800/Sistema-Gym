@@ -91,14 +91,21 @@ if exist "%~dp0resources\app" (
     set "TARGET_DIR=%~dp0resources\app"
 )
 
-REM Copiar archivos actualizados
-xcopy /E /Y /I "%TEMP%\gym-update\Sistema-Gym-main\*" "%TARGET_DIR%" /EXCLUDE:%~dp0update-exclude.txt
+REM Copiar archivos usando Robocopy (mas robusto)
+echo Copiando archivos...
+:: /E = subdirectorios incluyendo vacios
+:: /XO = excluir archivos mas antiguos (solo actualiza si es mas nuevo)
+:: /XF = excluir archivos especificos
+:: /XD = excluir directorios
+robocopy "%TEMP%\gym-update\Sistema-Gym-main" "%TARGET_DIR%" /E /XO /XF "update-exclude.txt" "ACTUALIZAR.bat" ".env" /XD ".git" ".vscode" "node_modules"
 
-if %ERRORLEVEL% NEQ 0 (
+:: Verificamos el codigo de salida de Robocopy
+:: Robocopy usa codigos de bit. Todo menor a 8 es exito
+if %ERRORLEVEL% GEQ 8 (
     color 0C
     echo.
-    echo [ERROR] Hubo un problema al copiar los archivos.
-    echo Verifique que no haya archivos bloqueados.
+    echo [ERROR] Hubo problemas al copiar los archivos.
+    echo Codigo de error Robocopy: %ERRORLEVEL%
     pause
     exit /b 1
 )
