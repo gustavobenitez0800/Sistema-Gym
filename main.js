@@ -8,6 +8,39 @@ autoUpdater.logger = log;
 autoUpdater.logger.transports.file.level = 'info';
 log.info('App starting...');
 
+// --- AutoUpdate Configuration ---
+// Crucial for unsigned apps (Windows)
+autoUpdater.autoDownload = true;
+autoUpdater.autoInstallOnAppQuit = true;
+
+// Logging events for debugging
+autoUpdater.on('checking-for-update', () => {
+    log.info('Checking for update...');
+});
+
+autoUpdater.on('update-available', (info) => {
+    log.info('Update available.', info);
+});
+
+autoUpdater.on('update-not-available', (info) => {
+    log.info('Update not available.', info);
+});
+
+autoUpdater.on('error', (err) => {
+    log.error('Error in auto-updater. ' + err);
+});
+
+autoUpdater.on('download-progress', (progressObj) => {
+    let log_message = "Download speed: " + progressObj.bytesPerSecond;
+    log_message = log_message + ' - Downloaded ' + progressObj.percent + '%';
+    log_message = log_message + ' (' + progressObj.transferred + "/" + progressObj.total + ')';
+    log.info(log_message);
+});
+
+autoUpdater.on('update-downloaded', (info) => {
+    log.info('Update downloaded', info);
+});
+
 function createWindow() {
     const mainWindow = new BrowserWindow({
         width: 1200,
