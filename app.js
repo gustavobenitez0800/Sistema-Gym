@@ -2733,9 +2733,14 @@ function showNotificationModal(notifications) {
                         <tbody id="notification-list-body"></tbody>
                     </table>
                 </div>
-                <div style="margin-top:20px; text-align:right;">
+                <div style="margin-top:20px; display:flex; justify-content:space-between; align-items:center;">
+                    <button id="send-all-whatsapp-btn" class="btn btn-success" style="display:flex; align-items:center; gap:8px;">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"></path>
+                        </svg>
+                        Enviar Todo
+                    </button>
                     <button class="btn-primary" onclick="document.getElementById('notification-center-modal').remove()">Cerrar</button>
-                    <!-- Future: Send All button -->
                 </div>
             </div>
         `;
@@ -2765,28 +2770,69 @@ function showNotificationModal(notifications) {
 
         tbody.appendChild(tr);
 
-        // Attach listener
+        // Attach listener for individual send
         const btn = tr.querySelector(`#btn-send-${index}`);
         btn.onclick = async () => {
-            // 1. Send WA
-            whatsappService.sendWhatsApp(notif.member.contact, notif.message);
-
-            // 2. Mark as sent in DB
-            const updateField = notif.type === 'warning' ? 'warning_sent' : 'expiration_sent';
-
             btn.disabled = true;
-            btn.innerHTML = '<i class="fas fa-check" style="color:#4caf50;"></i>';
+            btn.innerHTML = '<div class="spinner" style="width:14px;height:14px;border-width:2px;margin:0;display:inline-block;"></div>';
 
-            await supabase
-                .from('payments')
-                .update({ [updateField]: true })
-                .eq('id', notif.paymentId);
+            let sent = false;
+            const type = notif.type === 'warning' ? 'warning' : 'overdue';
+
+            // Try auto-send if connected
+            if (whatsappConnected) {
+                sent = await autoSendWhatsApp(notif.member.contact, notif.message, type);
+            }
+
+            if (!sent) {
+                // Fallback to manual wa.me link
+                whatsappService.sendWhatsApp(notif.member.contact, notif.message);
+                sent = true;
+            }
+
+            if (sent) {
+                // Mark as sent in DB
+                const updateField = notif.type === 'warning' ? 'warning_sent' : 'expiration_sent';
+                await supabase
+                    .from('payments')
+                    .update({ [updateField]: true })
+                    .eq('id', notif.paymentId);
+
+                btn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#4caf50" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg>';
+                tr.style.opacity = '0.5';
+            }
         };
     });
 
+    // Store notifications for batch send
+    window._pendingNotifications = notifications;
+
+    // Setup Send All button
+    const sendAllBtn = modal.querySelector('#send-all-whatsapp-btn');
+    if (sendAllBtn) {
+        sendAllBtn.textContent = `Enviar Todo (${notifications.length})`;
+        sendAllBtn.onclick = async () => {
+            sendAllBtn.disabled = true;
+            sendAllBtn.innerHTML = '<div class="spinner" style="width:14px;height:14px;border-width:2px;margin:0;display:inline-block;"></div> Enviando...';
+
+            let sentCount = 0;
+            for (let i = 0; i < notifications.length; i++) {
+                const btn = document.getElementById(`btn-send-${i}`);
+                if (btn && !btn.disabled) {
+                    btn.click();
+                    sentCount++;
+                    // Delay between sends to avoid rate limiting
+                    await new Promise(r => setTimeout(r, 1500));
+                }
+            }
+
+            sendAllBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#4caf50" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg> ${sentCount} enviados`;
+        };
+    }
+
     modal.classList.remove('hidden');
-    modal.classList.add('active'); // Ensure display
-    modal.style.display = 'flex'; // Force flex for centering (if logic differs from .modal class)
+    modal.classList.add('active');
+    modal.style.display = 'flex';
 }
 
 // --- Refactored Notification Logic ---
