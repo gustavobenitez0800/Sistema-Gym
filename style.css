@@ -177,15 +177,20 @@
         border-left: 6px solid var(--primary);
         box-shadow: 0 10px 30px rgba(0, 0, 0, 0.7);
         display: none;
-        /* Hidden by default */
         z-index: 9999;
-        animation: slideIn 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
         max-width: 400px;
         font-family: 'Segoe UI', sans-serif;
+
+        /* Transition State: Hidden */
+        opacity: 0;
+        transform: translateX(20px);
+        transition: opacity 0.4s ease, transform 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
     }
 
     .update-notification.show {
-        display: block;
+        /* Transition State: Visible */
+        opacity: 1;
+        transform: translateX(0);
     }
 
     .update-notification h4 {

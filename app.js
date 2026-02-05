@@ -78,57 +78,87 @@ document.addEventListener('DOMContentLoaded', () => {
         const message = document.getElementById('update-message');
         const actions = document.getElementById('update-actions');
 
-        function showNotification(text, titleText = 'Actualización', isError = false) {
+        // Professional SVGs
+        const ICONS = {
+            search: `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>`,
+            download: `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>`,
+            check: `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#4caf50" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>`,
+            error: `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#ef4444" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>`,
+            install: `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--primary)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>`
+        };
+
+        function showNotification(text, titleText = 'Actualización', type = 'search') {
             if (!notification) return;
-            notification.style.display = 'block';
-            notification.classList.add('show');
-            title.innerHTML = isError ? `<i class="fas fa-exclamation-triangle"></i> ${titleText}` : `<i class="fas fa-cloud-download-alt"></i> ${titleText}`;
+
+            // Icon
+            const icon = ICONS[type] || ICONS.search;
+            title.innerHTML = `<span style="display:flex;align-items:center;gap:10px;">${icon} ${titleText}</span>`;
             message.textContent = text;
 
-            if (isError) {
-                notification.style.borderLeftColor = 'var(--danger)';
-                title.style.color = 'var(--danger)';
+            // Styles based on type
+            if (type === 'error') {
+                notification.style.borderLeftColor = '#ef4444';
+                title.style.color = '#ef4444';
+            } else if (type === 'check') {
+                notification.style.borderLeftColor = '#4caf50';
+                title.style.color = '#4caf50';
             } else {
                 notification.style.borderLeftColor = 'var(--primary)';
                 title.style.color = 'var(--primary)';
             }
+
+            // Display logic
+            notification.style.display = 'block';
+            // Slight delay to allow display:block to apply before adding class for transition
+            requestAnimationFrame(() => {
+                notification.classList.add('show');
+            });
+        }
+
+        function hideNotification() {
+            if (!notification) return;
+            notification.classList.remove('show');
+            // Wait for animation to finish before hiding
+            setTimeout(() => {
+                notification.style.display = 'none';
+            }, 400);
         }
 
         // Event Delegation for Notification Buttons
         actions.addEventListener('click', (e) => {
             if (e.target.classList.contains('btn-dismiss')) {
-                notification.classList.remove('show');
+                hideNotification();
             } else if (e.target.classList.contains('btn-update')) {
                 ipcRenderer.send('restart_app');
             }
         });
 
         ipcRenderer.on('checking_for_update', () => {
-            showNotification('Buscando actualizaciones...', 'Buscando');
+            showNotification('Buscando actualizaciones...', 'Buscando', 'search');
             actions.innerHTML = ``;
         });
 
         ipcRenderer.on('update_available', () => {
-            showNotification('Nueva versión disponible. Descargando en segundo plano...', 'Actualizando');
-            actions.innerHTML = `<button class="btn-dismiss">Ocultar</button>`; // Removed inline onclick
+            showNotification('Nueva versión disponible. Descargando...', 'Actualizando', 'download');
+            actions.innerHTML = `<button class="btn-dismiss">Ocultar</button>`;
         });
 
         ipcRenderer.on('update_not_available', () => {
-            // Added more prominent checkmark icon
-            showNotification('Tu sistema está actualizado.', 'Todo al día');
-            // Changed button text to 'Entendido' and ensured class matches delegation
+            // Success State
+            showNotification('Tu sistema está actualizado.', 'Todo al día', 'check');
             actions.innerHTML = `<button class="btn-dismiss" style="background:var(--primary); color:black; border:none; font-weight:bold;">Entendido</button>`;
 
+            // Auto hide after 4s
             setTimeout(() => {
-                const notif = document.getElementById('update-notification');
-                if (notif && notif.classList.contains('show') && document.getElementById('update-message').textContent.includes('actualizado')) {
-                    notif.classList.remove('show');
+                // Only hide if it's still the "up to date" message
+                if (notification.classList.contains('show') && message.textContent.includes('actualizado')) {
+                    hideNotification();
                 }
-            }, 4000); // 4 Seconds
+            }, 4000);
         });
 
         ipcRenderer.on('update_downloaded', () => {
-            showNotification('La actualización está lista para instalarse.', 'Actualización Lista');
+            showNotification('La actualización está lista para instalarse.', 'Actualización Lista', 'install');
             actions.innerHTML = `
                 <button class="btn-update">Reiniciar Ahora</button>
                 <button class="btn-dismiss">Más tarde</button>
@@ -136,7 +166,7 @@ document.addEventListener('DOMContentLoaded', () => {
         });
 
         ipcRenderer.on('update_error', (event, err) => {
-            showNotification('Error al actualizar: ' + err, 'Error', true);
+            showNotification('Error al actualizar: ' + err, 'Error', 'error');
             actions.innerHTML = `<button class="btn-dismiss">Cerrar</button>`;
         });
     } catch (err) {
