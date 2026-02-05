@@ -25,6 +25,12 @@ ipcMain.on('manual-check-for-updates', () => {
     autoUpdater.checkForUpdates();
 });
 
+// Handler para reiniciar e instalar la actualización descargada
+ipcMain.on('restart_app', () => {
+    log.info('Restarting app to install update...');
+    autoUpdater.quitAndInstall(false, true);
+});
+
 // Logging events for debugging
 autoUpdater.on('checking-for-update', () => {
     log.info('Checking for update...');
@@ -90,8 +96,10 @@ function createWindow() {
 app.whenReady().then(() => {
     createWindow();
 
-    // Check for updates (Quietly on startup, listeners will handle UI)
-    autoUpdater.checkForUpdates();
+    // Check for updates after a short delay to ensure renderer is ready
+    setTimeout(() => {
+        autoUpdater.checkForUpdates();
+    }, 2000);
 
     app.on('activate', () => {
         if (BrowserWindow.getAllWindows().length === 0) {

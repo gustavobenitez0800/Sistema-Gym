@@ -125,33 +125,38 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         // Event Delegation for Notification Buttons
-        actions.addEventListener('click', (e) => {
-            if (e.target.classList.contains('btn-dismiss')) {
-                hideNotification();
-            } else if (e.target.classList.contains('btn-update')) {
-                ipcRenderer.send('restart_app');
-            }
-        });
+        if (actions) {
+            actions.addEventListener('click', (e) => {
+                const dismissBtn = e.target.closest('.btn-dismiss');
+                const updateBtn = e.target.closest('.btn-update');
+
+                if (dismissBtn) {
+                    hideNotification();
+                } else if (updateBtn) {
+                    ipcRenderer.send('restart_app');
+                }
+            });
+        }
 
         ipcRenderer.on('checking_for_update', () => {
             showNotification('Buscando actualizaciones...', 'Buscando', 'search');
-            actions.innerHTML = ``;
+            if (actions) actions.innerHTML = ``;
         });
 
         ipcRenderer.on('update_available', () => {
             showNotification('Nueva versión disponible. Descargando...', 'Actualizando', 'download');
-            actions.innerHTML = `<button class="btn-dismiss">Ocultar</button>`;
+            if (actions) actions.innerHTML = `<button class="btn-dismiss">Ocultar</button>`;
         });
 
         ipcRenderer.on('update_not_available', () => {
             // Success State
             showNotification('Tu sistema está actualizado.', 'Todo al día', 'check');
-            actions.innerHTML = `<button class="btn-dismiss" style="background:var(--primary); color:black; border:none; font-weight:bold;">Entendido</button>`;
+            if (actions) actions.innerHTML = `<button class="btn-dismiss" style="background:var(--primary); color:black; border:none; font-weight:bold;">Entendido</button>`;
 
             // Auto hide after 4s
             setTimeout(() => {
                 // Only hide if it's still the "up to date" message
-                if (notification.classList.contains('show') && message.textContent.includes('actualizado')) {
+                if (notification && notification.classList.contains('show') && message && message.textContent.includes('actualizado')) {
                     hideNotification();
                 }
             }, 4000);
@@ -159,15 +164,17 @@ document.addEventListener('DOMContentLoaded', () => {
 
         ipcRenderer.on('update_downloaded', () => {
             showNotification('La actualización está lista para instalarse.', 'Actualización Lista', 'install');
-            actions.innerHTML = `
-                <button class="btn-update">Reiniciar Ahora</button>
-                <button class="btn-dismiss">Más tarde</button>
-            `;
+            if (actions) {
+                actions.innerHTML = `
+                    <button class="btn-update">Reiniciar Ahora</button>
+                    <button class="btn-dismiss">Más tarde</button>
+                `;
+            }
         });
 
         ipcRenderer.on('update_error', (event, err) => {
             showNotification('Error al actualizar: ' + err, 'Error', 'error');
-            actions.innerHTML = `<button class="btn-dismiss">Cerrar</button>`;
+            if (actions) actions.innerHTML = `<button class="btn-dismiss">Cerrar</button>`;
         });
     } catch (err) {
         showDebugError('Error en inicialización', err);
@@ -1408,7 +1415,11 @@ const ui = {
             alertBox.id = 'alert-overlay';
             alertBox.innerHTML = `
                 <div class="alert-box ${type}-type">
-                    <h3>${type === 'error' ? '⚠️ Error' : (type === 'success' ? '✅ Éxito' : 'ℹ️ Información')}</h3>
+                    <h3>${type === 'error'
+                    ? '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#FF5252" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:8px;"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>Error'
+                    : (type === 'success'
+                        ? '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#69F0AE" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:8px;"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>Éxito'
+                        : '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#FFD700" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:8px;"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>Información')}</h3>
                     <p>${message}</p>
                     <button onclick="this.closest('#alert-overlay').remove()">Aceptar</button>
                 </div>
@@ -2492,7 +2503,7 @@ function showNotificationModal(notifications) {
         modal.innerHTML = `
             <div class="modal-content" style="max-width: 700px;">
                 <span class="close-btn" onclick="document.getElementById('notification-center-modal').remove()">&times;</span>
-                <h2>🔔 Centro de Notificaciones</h2>
+                <h2><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--primary)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: middle; margin-right: 8px;"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path><path d="M13.73 21a2 2 0 0 1-3.46 0"></path></svg>Centro de Notificaciones</h2>
                 <p style="margin-bottom:15px; color:#aaa;">Se han detectado avisos automáticos pendientes de enviar.</p>
                 
                 <div class="table-container" style="max-height: 400px; overflow-y: auto;">
@@ -2524,8 +2535,8 @@ function showNotificationModal(notifications) {
         const tr = document.createElement('tr');
         tr.style.borderBottom = '1px solid #333';
         const typeLabel = notif.type === 'warning'
-            ? '<span style="color:#FFD700; font-size:0.9em;">⚠️ Vence pronto</span>'
-            : '<span style="color:#ff4444; font-size:0.9em;">⛔ Vencido</span>';
+            ? '<span style="color:#FFD700; font-size:0.9em; display:inline-flex; align-items:center; gap:4px;"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>Vence pronto</span>'
+            : '<span style="color:#ff4444; font-size:0.9em; display:inline-flex; align-items:center; gap:4px;"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="15" y1="9" x2="9" y2="15"></line><line x1="9" y1="9" x2="15" y2="15"></line></svg>Vencido</span>';
 
         tr.innerHTML = `
             <td style="padding:10px;">${notif.member.first_name} ${notif.member.last_name}</td>
