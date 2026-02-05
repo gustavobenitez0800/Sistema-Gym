@@ -94,9 +94,26 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         }
 
+        ipcRenderer.on('checking_for_update', () => {
+            showNotification('Buscando actualizaciones...', 'Buscando');
+            actions.innerHTML = ``; // No actions needed while checking
+        });
+
         ipcRenderer.on('update_available', () => {
             showNotification('Nueva versión disponible. Descargando en segundo plano...', 'Actualizando');
             actions.innerHTML = `<button class="btn-dismiss" onclick="document.getElementById('update-notification').classList.remove('show')">Ocultar</button>`;
+        });
+
+        ipcRenderer.on('update_not_available', () => {
+            showNotification('Tu sistema está actualizado.', 'Todo al día');
+            actions.innerHTML = `<button class="btn-dismiss" onclick="document.getElementById('update-notification').classList.remove('show')">Aceptar</button>`;
+            // Auto hide after 3 seconds for cleaner UX
+            setTimeout(() => {
+                const notif = document.getElementById('update-notification');
+                if (notif && notif.classList.contains('show') && document.getElementById('update-message').textContent.includes('actualizado')) {
+                    notif.classList.remove('show');
+                }
+            }, 3000);
         });
 
         ipcRenderer.on('update_downloaded', () => {

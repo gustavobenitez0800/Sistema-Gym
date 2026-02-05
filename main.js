@@ -28,10 +28,17 @@ ipcMain.on('manual-check-for-updates', () => {
 // Logging events for debugging
 autoUpdater.on('checking-for-update', () => {
     log.info('Checking for update...');
+    if (BrowserWindow.getAllWindows().length > 0) {
+        BrowserWindow.getAllWindows()[0].webContents.send('checking_for_update');
+    }
 });
 
 autoUpdater.on('update-available', (info) => {
     log.info('Update available.', info);
+    // Notify Renderer
+    if (BrowserWindow.getAllWindows().length > 0) {
+        BrowserWindow.getAllWindows()[0].webContents.send('update_available');
+    }
     dialog.showMessageBox({
         type: 'info',
         title: 'Actualización Disponible',
@@ -41,6 +48,9 @@ autoUpdater.on('update-available', (info) => {
 
 autoUpdater.on('update-not-available', (info) => {
     log.info('Update not available.', info);
+    if (BrowserWindow.getAllWindows().length > 0) {
+        BrowserWindow.getAllWindows()[0].webContents.send('update_not_available');
+    }
 });
 
 autoUpdater.on('error', (err) => {
