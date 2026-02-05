@@ -29,6 +29,138 @@ let ITEMS_PER_PAGE = 20;
 let currentPage = 1;
 let filteredMembersCache = []; // Store filtered result for pagination
 let activeMemberIds = new Set(); // Active members (expiration_date >= today)
+let whatsappConnected = false; // WhatsApp connection status
+
+// ===== WHATSAPP AUTO CONFIG FUNCTIONS =====
+window.openWhatsAppConfig = function () {
+    document.getElementById('whatsapp-modal').classList.remove('hidden');
+    // Check current status
+    ipcRenderer.invoke('whatsapp-status').then(status => {
+        updateWhatsAppUI(status);
+    });
+};
+
+window.closeWhatsAppModal = function () {
+    document.getElementById('whatsapp-modal').classList.add('hidden');
+};
+
+window.initWhatsApp = async function () {
+    const qrSection = document.getElementById('whatsapp-qr-section');
+    const qrContainer = document.getElementById('whatsapp-qr-container');
+    const statusDot = document.getElementById('whatsapp-status-dot');
+    const statusText = document.getElementById('whatsapp-status-text');
+    const connectBtn = document.getElementById('whatsapp-connect-btn');
+
+    // Show loading
+    qrSection.classList.remove('hidden');
+    qrContainer.innerHTML = '<div class="spinner"></div>';
+    statusDot.className = 'status-dot connecting';
+    statusText.textContent = 'Conectando...';
+    connectBtn.disabled = true;
+
+    try {
+        await ipcRenderer.invoke('whatsapp-init');
+    } catch (error) {
+        console.error('[WhatsApp] Init error:', error);
+        statusText.textContent = 'Error al conectar';
+        statusDot.className = 'status-dot disconnected';
+        connectBtn.disabled = false;
+    }
+};
+
+window.disconnectWhatsApp = async function () {
+    try {
+        await ipcRenderer.invoke('whatsapp-logout');
+        whatsappConnected = false;
+        updateWhatsAppUI({ status: 'disconnected' });
+    } catch (error) {
+        console.error('[WhatsApp] Disconnect error:', error);
+    }
+};
+
+function updateWhatsAppUI(status) {
+    const statusDot = document.getElementById('whatsapp-status-dot');
+    const statusText = document.getElementById('whatsapp-status-text');
+    const qrSection = document.getElementById('whatsapp-qr-section');
+    const qrContainer = document.getElementById('whatsapp-qr-container');
+    const connectedSection = document.getElementById('whatsapp-connected-section');
+    const connectBtn = document.getElementById('whatsapp-connect-btn');
+    const disconnectBtn = document.getElementById('whatsapp-disconnect-btn');
+
+    if (!statusDot) return;
+
+    switch (status.status) {
+        case 'ready':
+            statusDot.className = 'status-dot connected';
+            statusText.textContent = 'Conectado';
+            qrSection.classList.add('hidden');
+            connectedSection.classList.remove('hidden');
+            connectBtn.classList.add('hidden');
+            disconnectBtn.classList.remove('hidden');
+            whatsappConnected = true;
+            break;
+        case 'qr':
+            statusDot.className = 'status-dot connecting';
+            statusText.textContent = 'Escanea el QR';
+            qrSection.classList.remove('hidden');
+            connectedSection.classList.add('hidden');
+            if (status.qr) {
+                qrContainer.innerHTML = `<img src="${status.qr}" alt="QR Code">`;
+            }
+            connectBtn.disabled = true;
+            break;
+        case 'authenticated':
+            statusText.textContent = 'Autenticado, cargando...';
+            break;
+        case 'disconnected':
+        case 'not_initialized':
+        default:
+            statusDot.className = 'status-dot disconnected';
+            statusText.textContent = 'Desconectado';
+            qrSection.classList.add('hidden');
+            connectedSection.classList.add('hidden');
+            connectBtn.classList.remove('hidden');
+            connectBtn.disabled = false;
+            disconnectBtn.classList.add('hidden');
+            whatsappConnected = false;
+            break;
+    }
+}
+
+// Listen for WhatsApp status updates from main process
+ipcRenderer.on('whatsapp-status', (event, status) => {
+    updateWhatsAppUI(status);
+});
+
+// Auto-send WhatsApp message function
+async function autoSendWhatsApp(phone, message, type = 'payment') {
+    if (!whatsappConnected) {
+        console.log('[WhatsApp] Not connected, skipping auto-send');
+        return false;
+    }
+
+    // Check if auto-send is enabled for this type
+    const toggleId = `auto-send-${type}`;
+    const toggle = document.getElementById(toggleId);
+    if (toggle && !toggle.checked) {
+        console.log(`[WhatsApp] Auto-send disabled for ${type}`);
+        return false;
+    }
+
+    try {
+        const result = await ipcRenderer.invoke('whatsapp-send', phone, message);
+        if (result.success) {
+            console.log('[WhatsApp] Message sent successfully');
+            return true;
+        } else {
+            console.error('[WhatsApp] Send failed:', result.error);
+            return false;
+        }
+    } catch (error) {
+        console.error('[WhatsApp] Send error:', error);
+        return false;
+    }
+}
 
 // Validation Helper Functions
 const validators = {
@@ -1890,11 +2022,21 @@ async function handleAddPayment(e) {
         // WhatsApp Automation: Payment Confirmation
         const member = currentMembers.find(m => m.id === member_id);
         if (member && member.contact) {
-            const confirmed = await ui.confirm(`¿Deseas enviar una confirmación de pago a ${member.first_name} por WhatsApp?`);
-            if (confirmed) {
-                const monthName = getMonthName(month_year);
-                const msg = whatsappService.getPaymentConfirmationMessage(member, amount, monthName);
-                whatsappService.sendWhatsApp(member.contact, msg);
+            const monthName = getMonthName(month_year);
+            const msg = whatsappService.getPaymentConfirmationMessage(member, amount, monthName);
+
+            // Try auto-send first if connected
+            if (whatsappConnected) {
+                const sent = await autoSendWhatsApp(member.contact, msg, 'payment');
+                if (sent) {
+                    console.log('[WhatsApp] Payment confirmation sent automatically');
+                }
+            } else {
+                // Fallback to manual wa.me link
+                const confirmed = await ui.confirm(`¿Deseas enviar una confirmación de pago a ${member.first_name} por WhatsApp?`);
+                if (confirmed) {
+                    whatsappService.sendWhatsApp(member.contact, msg);
+                }
             }
         }
     }

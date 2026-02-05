@@ -31,6 +31,71 @@ ipcMain.on('restart_app', () => {
     autoUpdater.quitAndInstall(false, true);
 });
 
+// --- WhatsApp Auto Service ---
+let whatsappService = null;
+
+ipcMain.handle('whatsapp-init', async () => {
+    try {
+        if (!whatsappService) {
+            whatsappService = require('./src/whatsappAutoService');
+        }
+
+        await whatsappService.initialize((statusUpdate) => {
+            // Send status updates to renderer
+            if (BrowserWindow.getAllWindows().length > 0) {
+                BrowserWindow.getAllWindows()[0].webContents.send('whatsapp-status', statusUpdate);
+            }
+        });
+
+        return { success: true };
+    } catch (error) {
+        log.error('[WhatsApp] Init error:', error);
+        return { success: false, error: error.message };
+    }
+});
+
+ipcMain.handle('whatsapp-send', async (event, phone, message) => {
+    try {
+        if (!whatsappService) {
+            return { success: false, error: 'WhatsApp no inicializado' };
+        }
+        const result = await whatsappService.sendMessage(phone, message);
+        return result;
+    } catch (error) {
+        log.error('[WhatsApp] Send error:', error);
+        return { success: false, error: error.message };
+    }
+});
+
+ipcMain.handle('whatsapp-status', async () => {
+    if (!whatsappService) {
+        return { status: 'not_initialized', connected: false };
+    }
+    return whatsappService.getStatus();
+});
+
+ipcMain.handle('whatsapp-disconnect', async () => {
+    try {
+        if (whatsappService) {
+            await whatsappService.disconnect();
+        }
+        return { success: true };
+    } catch (error) {
+        return { success: false, error: error.message };
+    }
+});
+
+ipcMain.handle('whatsapp-logout', async () => {
+    try {
+        if (whatsappService) {
+            await whatsappService.logout();
+        }
+        return { success: true };
+    } catch (error) {
+        return { success: false, error: error.message };
+    }
+});
+
 // Logging events for debugging
 autoUpdater.on('checking-for-update', () => {
     log.info('Checking for update...');
