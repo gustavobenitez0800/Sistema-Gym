@@ -42,6 +42,11 @@ window.openWhatsAppConfig = function () {
 
 window.closeWhatsAppModal = function () {
     document.getElementById('whatsapp-modal').classList.add('hidden');
+    // Reset sections visibility for next open
+    document.getElementById('whatsapp-qr-section')?.classList.add('hidden');
+    document.getElementById('whatsapp-connected-section')?.classList.add('hidden');
+    const connectBtn = document.getElementById('whatsapp-connect-btn');
+    if (connectBtn) connectBtn.disabled = false;
 };
 
 window.initWhatsApp = async function () {
@@ -585,28 +590,12 @@ window.showSection = (sectionId, event) => {
 let dbRepaired = false; // Track if repair was already done this session
 
 async function loadDashboard() {
-    console.log('[DASHBOARD] Iniciando carga del dashboard...');
-    console.log('[DASHBOARD] Mes actual:', getCurrentMonthISO());
+    console.log('[DASHBOARD] Iniciando carga del dashboard (Optimized)...');
 
-    // ===== AUTO-REPAIR (runs once per session) =====
+    // ===== AUTO-REPAIR (Non-blocking) =====
     if (!dbRepaired) {
         dbRepaired = true;
-        console.log('[REPAIR] Ejecutando reparación automática de month_year...');
-        try {
-            const { data: allPayments } = await supabase.from('payments').select('id, month_year');
-            if (allPayments && allPayments.length > 0) {
-                for (const p of allPayments) {
-                    if (p.month_year && p.month_year.includes(' ')) {
-                        const cleaned = p.month_year.replace(/\s/g, '');
-                        await supabase.from('payments').update({ month_year: cleaned }).eq('id', p.id);
-                        console.log(`[REPAIR] Corregido: "${p.month_year}" -> "${cleaned}"`);
-                    }
-                }
-            }
-            console.log('[REPAIR] Reparación completada.');
-        } catch (e) {
-            console.error('[REPAIR] Error en reparación:', e);
-        }
+        repairDatabaseAsync();
     }
 
     // Get DOM elements
@@ -620,52 +609,66 @@ async function loadDashboard() {
     if (balanceEl) balanceEl.innerHTML = '<div class="spinner" style="width:20px;height:20px;border-width:2px;margin:0;"></div>';
 
     try {
-        // ========== 1. BALANCE MENSUAL ==========
-        console.log('[DASHBOARD] Consultando pagos del mes:', getCurrentMonthISO());
-        const { data: currentPayments, error: currErr } = await supabase
-            .from('payments')
-            .select('amount, member_id')
-            .eq('month_year', getCurrentMonthISO());
-
-        console.log('[DASHBOARD] Pagos encontrados:', currentPayments?.length || 0, 'Error:', currErr?.message || 'ninguno');
-
-        let totalBalance = 0;
-        if (!currErr && currentPayments && currentPayments.length > 0) {
-            currentPayments.forEach(p => totalBalance += parseFloat(p.amount || 0));
-        }
-        if (balanceEl) balanceEl.textContent = formatCurrency(totalBalance);
-        console.log('[DASHBOARD] Balance calculado:', totalBalance);
-
-        // ========== 2. MIEMBROS ACTIVOS ==========
+        const currentMonthISO = getCurrentMonthISO();
         const todayISO = new Date().toISOString();
-        console.log('[DASHBOARD] Fecha hoy (ISO):', todayISO);
+        const prevMonth = getPreviousMonth(currentMonthISO);
 
-        const { data: activePayments, error: activeErr } = await supabase
-            .from('payments')
-            .select('member_id, expiration_date')
-            .gte('expiration_date', todayISO);
+        // ========== PARALLEL EXECUTION ==========
+        // We run independent tasks in parallel:
+        // 1. Dashboard Sub-modules (Charts, Stats, Notifications)
+        // 2. Main Dashboard Queries (Balance, Active, Growth, Overdue)
 
-        console.log('[DASHBOARD] Pagos activos (exp >= hoy):', activePayments?.length || 0, 'Error:', activeErr?.message || 'ninguno');
+        const dashboardQueriesPromise = Promise.all([
+            // Query A: Current Month Payments (Balance)
+            supabase.from('payments').select('amount, member_id').eq('month_year', currentMonthISO),
 
-        // Update global activeMemberIds for other functions
-        activeMemberIds = new Set(activePayments?.map(p => p.member_id) || []);
+            // Query B: Active Payments (Active Count)
+            supabase.from('payments').select('member_id').gte('expiration_date', todayISO),
+
+            // Query C: Previous Month Payments (Growth)
+            supabase.from('payments').select('member_id').eq('month_year', prevMonth),
+
+            // Query D: Total Active Members (Overdue Calc)
+            supabase.from('members').select('id', { count: 'exact', head: true }).eq('active', true)
+        ]);
+
+        // Trigger Sub-modules concurrently (don't await yet if we want UI to update piecemeal, 
+        // but Promise.all is cleaner for "Dashboard Ready" state. 
+        // However, these functions update the DOM directly, so we can just fire them.)
+        const subModulesPromise = Promise.all([
+            loadMembers(), // Critical: updates global cache
+            loadAnnualSummary(),
+            loadPaymentMethodsChart(),
+            loadRetentionStats(),
+            loadExpiringSoonCount(),
+            checkAndShowNotifications()
+        ]);
+
+        // Await specific data needed for the TOP CARDS
+        const [
+            currMonthRes,
+            activeRes,
+            prevMonthRes,
+            totalActiveRes
+        ] = await dashboardQueriesPromise;
+
+        // ========== PROCESS TOP CARDS ==========
+
+        // 1. Balance
+        const currentPayments = currMonthRes.data || [];
+        let totalBalance = 0;
+        currentPayments.forEach(p => totalBalance += parseFloat(p.amount || 0));
+        if (balanceEl) balanceEl.textContent = formatCurrency(totalBalance);
+
+        // 2. Active Members
+        const activePayments = activeRes.data || [];
+        activeMemberIds = new Set(activePayments.map(p => p.member_id)); // Update global Set
         const activeCount = activeMemberIds.size;
-
         if (totalMembersEl) totalMembersEl.textContent = `${activeCount} Activos`;
-        console.log('[DASHBOARD] Miembros activos únicos:', activeCount);
 
-        // ========== 3. CRECIMIENTO ==========
-        const currentMonth = getCurrentMonthISO();
-        const prevMonth = getPreviousMonth(currentMonth);
-        console.log('[DASHBOARD] Comparando:', currentMonth, 'vs', prevMonth);
-
-        const { data: currMonthPays } = await supabase.from('payments').select('member_id').eq('month_year', currentMonth);
-        const { data: prevMonthPays } = await supabase.from('payments').select('member_id').eq('month_year', prevMonth);
-
-        const currCount = new Set(currMonthPays?.map(p => p.member_id) || []).size;
-        const prevCount = new Set(prevMonthPays?.map(p => p.member_id) || []).size;
-
-        console.log('[DASHBOARD] Pagadores este mes:', currCount, 'mes anterior:', prevCount);
+        // 3. Growth
+        const currCount = new Set(currentPayments.map(p => p.member_id)).size;
+        const prevCount = new Set((prevMonthRes.data || []).map(p => p.member_id)).size;
 
         if (growthEl) {
             if (prevCount === 0) {
@@ -678,33 +681,41 @@ async function loadDashboard() {
             }
         }
 
-        // ========== 4. VENCIDOS ==========
-        const { count: totalMembers, error: memErr } = await supabase
-            .from('members')
-            .select('*', { count: 'exact', head: true })
-            .eq('active', true);
+        // 4. Overdue
+        const totalMembers = totalActiveRes.count || 0;
+        const overdueCount = Math.max(0, totalMembers - activeCount);
+        if (overdueEl) overdueEl.textContent = `+${overdueCount} Vencidos`;
 
-        console.log('[DASHBOARD] Total miembros activos en DB:', totalMembers, 'Error:', memErr?.message || 'ninguno');
+        console.log('[DASHBOARD] Top Cards Updated. Waiting for modules...');
 
-        const overdueCount = Math.max(0, (totalMembers || 0) - activeCount);
-        if (overdueEl) overdueEl.textContent = overdueCount;
-        console.log('[DASHBOARD] Vencidos calculados:', overdueCount);
+        // Ensure all modules finished safely
+        await subModulesPromise;
+        console.log('[DASHBOARD] All modules loaded.');
 
     } catch (err) {
-        console.error('[DASHBOARD] ERROR CRÍTICO:', err);
+        console.error('[DASHBOARD] Critical Error:', err);
         if (totalMembersEl) totalMembersEl.textContent = "Error";
         if (balanceEl) balanceEl.textContent = "Error";
+        ui.alert('Error cargando el dashboard. Revisa la conexión.', 'error');
     }
+}
 
-    // ========== WIDGETS SECUNDARIOS ==========
-    console.log('[DASHBOARD] Cargando widgets secundarios...');
-    try { await loadExpiringSoonCount(); } catch (e) { console.error('[WIDGET] loadExpiringSoonCount error:', e); }
-    try { await loadPaymentMethodsChart(); } catch (e) { console.error('[WIDGET] loadPaymentMethodsChart error:', e); }
-    try { await loadRetentionStats(); } catch (e) { console.error('[WIDGET] loadRetentionStats error:', e); }
-    try { checkAndShowNotifications(); } catch (e) { console.error('[WIDGET] checkAndShowNotifications error:', e); }
-    try { loadAnnualSummary(); } catch (e) { console.error('[WIDGET] loadAnnualSummary error:', e); }
-
-    console.log('[DASHBOARD] Carga completa.');
+async function repairDatabaseAsync() {
+    console.log('[REPAIR] Ejecutando reparación en 2do plano...');
+    try {
+        const { data: allPayments } = await supabase.from('payments').select('id, month_year');
+        if (allPayments && allPayments.length > 0) {
+            for (const p of allPayments) {
+                if (p.month_year && p.month_year.includes(' ')) {
+                    const cleaned = p.month_year.replace(/\s/g, '');
+                    await supabase.from('payments').update({ month_year: cleaned }).eq('id', p.id);
+                }
+            }
+        }
+        console.log('[REPAIR] Finalizado.');
+    } catch (e) {
+        console.error('[REPAIR] Error:', e);
+    }
 }
 
 // ==========================================
@@ -1849,20 +1860,21 @@ async function handleEditMember(e) {
     }
 }
 
-// --- Delete Member ---
+// --- Delete Member (Soft Delete) ---
 window.deleteMember = async (id) => {
-    const confirmed = await ui.confirm('¿Estás seguro de que quieres eliminar a este alumno de forma permanente? Se borrará de la lista y su historial.');
+    const confirmed = await ui.confirm('¿Estás seguro de que quieres eliminar a este alumno? Se archivará y no aparecerá en la lista activa, pero su historial de pagos se conservará.');
     if (!confirmed) return;
 
+    // Soft Delete: active = false
     const { error } = await supabase
         .from('members')
-        .delete()
+        .update({ active: false })
         .eq('id', id);
 
     if (error) {
         ui.alert('Error al eliminar: ' + error.message, 'error');
     } else {
-        ui.alert('Alumno eliminado permanentemente.', 'success');
+        ui.alert('Alumno eliminado (archivado) correctamente.', 'success');
         loadMembers();
         loadDashboard();
     }
@@ -2209,13 +2221,15 @@ async function loadPaymentsHistory() {
     const { data: payments, error } = await supabase
         .from('payments')
         .select(`
-created_at,
-    payment_date,
-    month_year,
-    amount,
-    payment_method,
-    member_id,
-    members(first_name, last_name)
+            id,
+            created_at,
+            payment_date,
+            expiration_date,
+            month_year,
+            amount,
+            payment_method,
+            member_id,
+            members(first_name, last_name)
         `)
         .gte('payment_date', startDate.toISOString())
         .lte('payment_date', endDate.toISOString())
@@ -2345,6 +2359,10 @@ function renderDetailedView(payments, tbody) {
 // --- PDF Export Logic ---
 window.exportMonthlyReport = () => {
     try {
+        if (!window.jspdf || !window.jspdf.jsPDF) {
+            ui.alert('La librería PDF no está disponible. Recarga la página e intenta de nuevo.', 'error');
+            return;
+        }
         const { jsPDF } = window.jspdf;
         const doc = new jsPDF();
 
@@ -2376,6 +2394,10 @@ window.exportMonthlyReport = () => {
 // Export Payments to PDF
 window.exportPaymentsToPDF = () => {
     try {
+        if (!window.jspdf || !window.jspdf.jsPDF) {
+            ui.alert('La librería PDF no está disponible. Recarga la página e intenta de nuevo.', 'error');
+            return;
+        }
         const { jsPDF } = window.jspdf;
         const doc = new jsPDF();
 
@@ -2540,13 +2562,29 @@ function setupKeyboardShortcuts() {
             changeGlobalMonth(1);
         }
 
-        // Escape: Close modals
+        // Escape: Close all modals, alerts, and notification center
         if (e.key === 'Escape') {
+            // Close known modals
             closeAddMemberModal();
             closeEditMemberModal();
             closePaymentModal();
             closeNotesModal();
             closeExpiringModal();
+            closeWhatsAppModal();
+            closeEditPaymentModal();
+
+            // Close any visible generic modals
+            document.querySelectorAll('.modal:not(.hidden)').forEach(modal => {
+                modal.classList.add('hidden');
+            });
+
+            // Close alert overlays
+            const alertOverlay = document.getElementById('alert-overlay');
+            if (alertOverlay) alertOverlay.remove();
+
+            // Close notification center modal
+            const notifModal = document.getElementById('notification-center-modal');
+            if (notifModal) notifModal.remove();
         }
 
         // F1: Show keyboard shortcuts help
@@ -2712,35 +2750,45 @@ function showNotificationModal(notifications) {
     if (!modal) {
         modal = document.createElement('div');
         modal.id = 'notification-center-modal';
-        modal.className = 'modal'; // Reuse existing modal class
+        modal.className = 'modal';
+        modal.style.cssText = 'display:flex; align-items:center; justify-content:center; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.8); z-index:9999;';
 
         modal.innerHTML = `
-            <div class="modal-content" style="max-width: 700px;">
-                <span class="close-btn" onclick="document.getElementById('notification-center-modal').remove()">&times;</span>
-                <h2><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--primary)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: middle; margin-right: 8px;"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path><path d="M13.73 21a2 2 0 0 1-3.46 0"></path></svg>Centro de Notificaciones</h2>
-                <p style="margin-bottom:15px; color:#aaa;">Se han detectado avisos automáticos pendientes de enviar.</p>
+            <div class="modal-content" style="max-width:750px; width:95%; max-height:85vh; overflow:hidden; display:flex; flex-direction:column;">
+                <span class="close-btn" onclick="document.getElementById('notification-center-modal').remove()" style="position:absolute; right:15px; top:10px; font-size:1.8rem; cursor:pointer; color:#999; z-index:10;">&times;</span>
+                <h2 style="display:flex; align-items:center; gap:10px; margin-bottom:10px;">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--primary)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path>
+                        <path d="M13.73 21a2 2 0 0 1-3.46 0"></path>
+                    </svg>
+                    Centro de Notificaciones
+                </h2>
+                <p style="margin-bottom:15px; color:#888; font-size:0.9rem;">Se han detectado avisos automáticos pendientes de enviar.</p>
                 
-                <div class="table-container" style="max-height: 400px; overflow-y: auto;">
+                <div style="flex:1; overflow-y:auto; margin-bottom:15px;">
                     <table style="width:100%; border-collapse:collapse;">
                         <thead>
-                            <tr style="text-align:left; border-bottom:1px solid #444;">
-                                <th style="padding:10px;">Alumno</th>
-                                <th>Motivo</th>
-                                <th>Contacto</th>
-                                <th style="text-align:center;">Acción</th>
+                            <tr style="text-align:left; border-bottom:2px solid var(--primary);">
+                                <th style="padding:12px 10px; color:var(--primary); font-weight:600;">Alumno</th>
+                                <th style="padding:12px 10px; color:var(--primary); font-weight:600;">Estado</th>
+                                <th style="padding:12px 10px; color:var(--primary); font-weight:600;">Teléfono</th>
+                                <th style="padding:12px 10px; color:var(--primary); font-weight:600; text-align:center;">WhatsApp</th>
                             </tr>
                         </thead>
                         <tbody id="notification-list-body"></tbody>
                     </table>
                 </div>
-                <div style="margin-top:20px; display:flex; justify-content:space-between; align-items:center;">
-                    <button id="send-all-whatsapp-btn" class="btn btn-success" style="display:flex; align-items:center; gap:8px;">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                            <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"></path>
+                
+                <div style="display:flex; gap:15px; justify-content:flex-end; padding-top:15px; border-top:1px solid #333;">
+                    <button id="send-all-whatsapp-btn" class="btn-primary" style="display:flex; align-items:center; gap:8px; background:#25D366; border-color:#25D366;">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="white">
+                            <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/>
                         </svg>
                         Enviar Todo
                     </button>
-                    <button class="btn-primary" onclick="document.getElementById('notification-center-modal').remove()">Cerrar</button>
+                    <button class="btn-primary" onclick="document.getElementById('notification-center-modal').remove()" style="background:transparent; border:1px solid #666; color:#fff;">
+                        Cerrar
+                    </button>
                 </div>
             </div>
         `;
@@ -2752,18 +2800,34 @@ function showNotificationModal(notifications) {
 
     notifications.forEach((notif, index) => {
         const tr = document.createElement('tr');
-        tr.style.borderBottom = '1px solid #333';
-        const typeLabel = notif.type === 'warning'
-            ? '<span style="color:#FFD700; font-size:0.9em; display:inline-flex; align-items:center; gap:4px;"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>Vence pronto</span>'
-            : '<span style="color:#ff4444; font-size:0.9em; display:inline-flex; align-items:center; gap:4px;"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="15" y1="9" x2="9" y2="15"></line><line x1="9" y1="9" x2="15" y2="15"></line></svg>Vencido</span>';
+        tr.style.cssText = 'border-bottom:1px solid #333; transition:background 0.2s;';
+        tr.onmouseover = () => tr.style.background = 'rgba(255,214,0,0.05)';
+        tr.onmouseout = () => tr.style.background = 'transparent';
+
+        const isWarning = notif.type === 'warning';
+        const statusBadge = isWarning
+            ? `<span style="display:inline-flex; align-items:center; gap:5px; padding:4px 10px; background:rgba(255,167,38,0.15); color:#FFA726; border-radius:12px; font-size:0.8rem; font-weight:500;">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+                Vence pronto
+               </span>`
+            : `<span style="display:inline-flex; align-items:center; gap:5px; padding:4px 10px; background:rgba(255,82,82,0.15); color:#FF5252; border-radius:12px; font-size:0.8rem; font-weight:500;">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
+                Vencido
+               </span>`;
 
         tr.innerHTML = `
-            <td style="padding:10px;">${notif.member.first_name} ${notif.member.last_name}</td>
-            <td>${typeLabel}</td>
-            <td>${notif.member.contact}</td>
-            <td style="text-align:center;">
-                <button class="action-btn btn-whatsapp" id="btn-send-${index}" title="Enviar WhatsApp">
-                    <i class="fab fa-whatsapp"></i> Contactar por WhatsApp
+            <td style="padding:14px 10px; font-weight:500;">${notif.member.first_name} ${notif.member.last_name}</td>
+            <td style="padding:14px 10px;">${statusBadge}</td>
+            <td style="padding:14px 10px; color:#aaa; font-family:monospace; font-size:0.9rem;">${notif.member.contact || 'Sin teléfono'}</td>
+            <td style="padding:14px 10px; text-align:center;">
+                <button id="btn-send-${index}" style="display:inline-flex; align-items:center; gap:6px; padding:8px 14px; background:#25D366; color:white; border:none; border-radius:8px; cursor:pointer; font-weight:500; font-size:0.85rem; transition:all 0.2s;" 
+                    onmouseover="this.style.background='#128C7E'; this.style.transform='scale(1.05)';"
+                    onmouseout="this.style.background='#25D366'; this.style.transform='scale(1)';"
+                    title="Enviar mensaje por WhatsApp">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="white">
+                        <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/>
+                    </svg>
+                    Enviar
                 </button>
             </td>
         `;
@@ -2774,7 +2838,8 @@ function showNotificationModal(notifications) {
         const btn = tr.querySelector(`#btn-send-${index}`);
         btn.onclick = async () => {
             btn.disabled = true;
-            btn.innerHTML = '<div class="spinner" style="width:14px;height:14px;border-width:2px;margin:0;display:inline-block;"></div>';
+            btn.style.opacity = '0.6';
+            btn.innerHTML = '<div class="spinner" style="width:14px;height:14px;border-width:2px;margin:0;display:inline-block;border-color:#fff transparent #fff transparent;"></div>';
 
             let sent = false;
             const type = notif.type === 'warning' ? 'warning' : 'overdue';
@@ -2798,7 +2863,9 @@ function showNotificationModal(notifications) {
                     .update({ [updateField]: true })
                     .eq('id', notif.paymentId);
 
-                btn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#4caf50" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg>';
+                btn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#4caf50" stroke-width="3"><polyline points="20 6 9 17 4 12"></polyline></svg> Enviado';
+                btn.style.background = 'rgba(76,175,80,0.2)';
+                btn.style.color = '#4caf50';
                 tr.style.opacity = '0.5';
             }
         };
@@ -2810,10 +2877,15 @@ function showNotificationModal(notifications) {
     // Setup Send All button
     const sendAllBtn = modal.querySelector('#send-all-whatsapp-btn');
     if (sendAllBtn) {
-        sendAllBtn.textContent = `Enviar Todo (${notifications.length})`;
+        sendAllBtn.innerHTML = `
+            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="white">
+                <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/>
+            </svg>
+            Enviar Todo (${notifications.length})
+        `;
         sendAllBtn.onclick = async () => {
             sendAllBtn.disabled = true;
-            sendAllBtn.innerHTML = '<div class="spinner" style="width:14px;height:14px;border-width:2px;margin:0;display:inline-block;"></div> Enviando...';
+            sendAllBtn.innerHTML = '<div class="spinner" style="width:14px;height:14px;border-width:2px;margin:0;display:inline-block;border-color:#fff transparent #fff transparent;"></div> Enviando...';
 
             let sentCount = 0;
             for (let i = 0; i < notifications.length; i++) {
@@ -2826,7 +2898,8 @@ function showNotificationModal(notifications) {
                 }
             }
 
-            sendAllBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#4caf50" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg> ${sentCount} enviados`;
+            sendAllBtn.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#4caf50" stroke-width="3"><polyline points="20 6 9 17 4 12"></polyline></svg> ${sentCount} enviados`;
+            sendAllBtn.style.background = 'rgba(76,175,80,0.3)';
         };
     }
 
@@ -2932,21 +3005,7 @@ window.checkAndShowNotifications = async function (forceShow = false) {
 // UX ENHANCEMENTS: Modal Close Handlers
 // ==========================================
 
-// Close modals with ESC key
-document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') {
-        // Close all visible modals
-        document.querySelectorAll('.modal:not(.hidden)').forEach(modal => {
-            modal.classList.add('hidden');
-        });
-        // Close alert overlays
-        const alertOverlay = document.getElementById('alert-overlay');
-        if (alertOverlay) alertOverlay.remove();
-        // Close notification modal
-        const notifModal = document.getElementById('notification-center-modal');
-        if (notifModal) notifModal.remove();
-    }
-});
+// NOTE: ESC key handling is centralized in setupKeyboardShortcuts() to avoid duplicate listeners
 
 // Close modal when clicking outside the content
 document.addEventListener('click', (e) => {
