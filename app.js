@@ -1,11 +1,8 @@
 
 import { supabase } from './src/supabaseClient.js';
 import { whatsappService } from './src/whatsappService.js';
+import { log, validators, ui, formatCurrency, formatDate, transformDate, getMonthName, getPreviousMonth } from './src/utils.js';
 const { ipcRenderer } = require('electron');
-
-// ===== DEBUG MODE - Set to false in production =====
-const DEBUG_MODE = false;
-const log = (...args) => DEBUG_MODE && console.log(...args);
 
 // Global update function for the button
 window.checkForUpdates = () => ipcRenderer.send('manual-check-for-updates');
@@ -143,16 +140,6 @@ async function autoSendWhatsApp(phone, message, type = 'payment') {
         return false;
     }
 }
-
-// Validation Helper Functions
-const validators = {
-    isNotEmpty: (value) => value && value.trim().length > 0,
-    isValidEmail: (email) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email),
-    isValidPhone: (phone) => /^[\d\s\-\+\(\)]{7,}$/.test(phone),
-    isPositiveNumber: (num) => !isNaN(num) && parseFloat(num) > 0,
-    isValidDate: (date) => date && !isNaN(new Date(date).getTime())
-};
-
 
 document.addEventListener('DOMContentLoaded', () => {
     try {
@@ -418,19 +405,9 @@ window.changeGlobalMonth = function (offset) {
     refreshCurrentView();
 }
 
-// Helpers
-function transformDate(dateObj) {
-    const year = dateObj.getFullYear();
-    const month = String(dateObj.getMonth() + 1).padStart(2, '0');
-    return `${year}-${month}`;
-}
-
+// Helpers - getCurrentMonthISO uses imported transformDate
 function getCurrentMonthISO() {
     return transformDate(currentDate);
-}
-
-function formatCurrency(amount) {
-    return new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS' }).format(amount);
 }
 
 function getFullDateDisplay() {
@@ -460,22 +437,6 @@ function updateMonthDisplays() {
     // Check if element exists before setting (safe check)
     if (document.getElementById('payments-month-display'))
         document.getElementById('payments-month-display').textContent = monthName;
-}
-
-function getMonthName(yyyy_mm) {
-    const [year, month] = yyyy_mm.split('-');
-    const names = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
-    return `${names[parseInt(month) - 1]} ${year}`;
-}
-
-function getPreviousMonth(yyyy_mm) {
-    let [year, month] = yyyy_mm.split('-').map(Number);
-    month -= 1;
-    if (month === 0) {
-        month = 12;
-        year -= 1;
-    }
-    return `${year}-${String(month).padStart(2, '0')}`;
 }
 
 // --- Auth ---

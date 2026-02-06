@@ -3,17 +3,18 @@
 
     :root {
         --bg-color: #121212;
-        /* Soft Black */
         --card-bg: #1e1e1e;
-        /* Dark Grey Card */
         --primary: #FFD700;
-        /* Golden Yellow */
         --primary-hover: #FFEA00;
         --text: #F5F5F5;
         --text-muted: #B0B0B0;
         --success: #69F0AE;
         --danger: #FF5252;
         --border: #333333;
+        /* New utility variables */
+        --radius: 12px;
+        --radius-sm: 8px;
+        --shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
     }
 
     * {
