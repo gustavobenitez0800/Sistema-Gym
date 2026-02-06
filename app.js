@@ -1259,6 +1259,10 @@ function renderIncomeChart(statsByMonth, sortedMonths) {
         options: {
             responsive: true,
             maintainAspectRatio: false,
+            // Performance optimizations
+            animation: {
+                duration: 300 // Faster animation
+            },
             plugins: {
                 legend: { display: false },
                 tooltip: {
@@ -1284,6 +1288,11 @@ function renderIncomeChart(statsByMonth, sortedMonths) {
                     grid: { display: false },
                     ticks: { color: '#fff' }
                 }
+            },
+            // Performance: reduce redraws
+            interaction: {
+                mode: 'nearest',
+                intersect: true
             }
         }
     });

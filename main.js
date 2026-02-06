@@ -146,14 +146,41 @@ function createWindow() {
     const mainWindow = new BrowserWindow({
         width: 1200,
         height: 800,
+        minWidth: 800,
+        minHeight: 600,
+        show: false, // Don't show until ready to prevent white flash
+        backgroundColor: '#121212', // Match app background
         webPreferences: {
             nodeIntegration: true,
-            contextIsolation: false // For simple prototyping. In production, use preload scripts.
+            contextIsolation: false,
+            // Performance optimizations
+            backgroundThrottling: true, // Throttle when in background
+            enableWebSQL: false, // Disable unused feature
+            spellcheck: false, // Disable spellcheck
+            v8CacheOptions: 'bypassHeatCheck', // Faster V8 cache
         },
-        icon: path.join(__dirname, 'assets/icon.png') // We'll need an icon later
+        icon: path.join(__dirname, 'assets/icon.png')
+    });
+
+    // Show window when ready to prevent flickering
+    mainWindow.once('ready-to-show', () => {
+        mainWindow.show();
     });
 
     mainWindow.loadFile('index.html');
+
+    // Memory optimization: Clear cache periodically
+    mainWindow.webContents.on('did-finish-load', () => {
+        // Clear navigation history to save memory
+        mainWindow.webContents.clearHistory();
+    });
+
+    // Optimize: Reduce paint when window is hidden
+    mainWindow.on('hide', () => {
+        if (mainWindow.webContents) {
+            mainWindow.webContents.setBackgroundThrottling(true);
+        }
+    });
 
     // mainWindow.webContents.openDevTools(); // Uncomment for debugging
 }

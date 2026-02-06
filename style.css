@@ -2598,3 +2598,64 @@
             transform: scale(1);
         }
     }
+
+    /* ============================================
+   PERFORMANCE OPTIMIZATIONS
+   For low-end hardware / "toaster mode"
+============================================ */
+
+    /* Respect user preference for reduced motion */
+    @media (prefers-reduced-motion: reduce) {
+
+        *,
+        *::before,
+        *::after {
+            animation-duration: 0.01ms !important;
+            animation-iteration-count: 1 !important;
+            transition-duration: 0.01ms !important;
+            scroll-behavior: auto !important;
+        }
+
+        .spinner {
+            animation: none !important;
+        }
+    }
+
+    /* Optimize transitions globally - faster for better performance */
+    * {
+        transition-timing-function: ease-out !important;
+    }
+
+    /* Reduce box-shadows on hover (expensive to paint) */
+    .card:hover,
+    .stat-card:hover,
+    .login-card:hover {
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3) !important;
+    }
+
+    /* Use transform instead of position changes where possible */
+    .modal-content {
+        will-change: transform, opacity;
+    }
+
+    /* Optimize table rendering */
+    table {
+        table-layout: fixed;
+    }
+
+    /* Reduce repaints on scrolling containers */
+    .main-content,
+    .content-wrapper {
+        will-change: scroll-position;
+        contain: layout style paint;
+    }
+
+    /* Disable expensive filters on low-end */
+    @media screen and (max-width: 1024px) {
+
+        .blur-filter,
+        [style*="blur"] {
+            filter: none !important;
+            backdrop-filter: none !important;
+        }
+    }
