@@ -1,6 +1,6 @@
 {
   "name": "ayd-funcional-gym",
-  "version": "1.0.27",
+  "version": "1.0.28",
   "description": "Sistema de Gestion AyD Funcional Gym 2026",
   "repository": {
     "type": "git",
@@ -44,7 +44,7 @@
     "win": {
       "target": "nsis",
       "icon": "assets/icon.png",
-      "artifactName": "${productName}-Setup-${version}.${ext}"
+      "artifactName": "AyD-Funcional-Gym-Setup-${version}.${ext}"
     },
     "nsis": {
       "oneClick": false,
