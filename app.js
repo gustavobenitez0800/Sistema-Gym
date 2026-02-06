@@ -2,7 +2,7 @@
 import { supabase } from './src/supabaseClient.js';
 import { whatsappService } from './src/whatsappService.js';
 import { log, validators, ui, formatCurrency, formatDate, transformDate, getMonthName, getPreviousMonth } from './src/utils.js';
-const { ipcRenderer } = require('electron');
+const { ipcRenderer } = window.require('electron');
 
 // Global update function for the button
 window.checkForUpdates = () => ipcRenderer.send('manual-check-for-updates');
@@ -623,7 +623,7 @@ async function loadDashboard() {
         // 4. Overdue
         const totalMembers = totalActiveRes.count || 0;
         const overdueCount = Math.max(0, totalMembers - activeCount);
-        if (overdueEl) overdueEl.textContent = `+${overdueCount} Vencidos`;
+        if (overdueEl) overdueEl.textContent = `${overdueCount} Vencidos`;
 
         log('[DASHBOARD] Top Cards Updated. Waiting for modules...');
 
@@ -1562,66 +1562,9 @@ window.changeItemsPerPage = function (value) {
     renderPagination();
 }
 
-// --- UI Helper for Custom Alerts ---
-const ui = {
-    alert: (message, type = 'info') => {
-        return new Promise((resolve) => {
-            const container = document.getElementById('alert-container');
-            const alertBox = document.createElement('div');
-            alertBox.id = 'alert-overlay';
-            alertBox.innerHTML = `
-                <div class="alert-box ${type}-type">
-                    <h3>${type === 'error'
-                    ? '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#FF5252" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:8px;"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>Error'
-                    : (type === 'success'
-                        ? '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#69F0AE" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:8px;"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>Éxito'
-                        : '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#FFD700" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:8px;"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>Información')}</h3>
-                    <p>${message}</p>
-                    <button onclick="this.closest('#alert-overlay').remove()">Aceptar</button>
-                </div>
-            `;
-            container.appendChild(alertBox);
-            // Auto close success after 2s
-            if (type === 'success') {
-                setTimeout(() => {
-                    if (alertBox.parentNode) alertBox.remove();
-                    resolve();
-                }, 2000);
-            }
-            alertBox.querySelector('button').onclick = () => {
-                alertBox.remove();
-                resolve();
-            };
-        });
-    },
-    confirm: (message) => {
-        return new Promise((resolve) => {
-            const container = document.getElementById('alert-container');
-            const alertBox = document.createElement('div');
-            alertBox.id = 'alert-overlay';
-            alertBox.innerHTML = `
-                <div class="alert-box">
-                    <h3>❓ Confirmar</h3>
-                    <p>${message}</p>
-                    <div style="display:flex; justify-content:center; gap:10px;">
-                        <button class="btn-cancel" id="btn-cancel">Cancelar</button>
-                        <button id="btn-ok">Confirmar</button>
-                    </div>
-                </div>
-            `;
-            container.appendChild(alertBox);
-
-            document.getElementById('btn-cancel').onclick = () => {
-                alertBox.remove();
-                resolve(false);
-            };
-            document.getElementById('btn-ok').onclick = () => {
-                alertBox.remove();
-                resolve(true);
-            };
-        });
-    }
-};
+// NOTE: ui object is now imported from ./src/utils.js
+// The following has been removed to avoid duplicate declaration:
+// const ui = { ... } - moved to utils.js
 
 // --- Add Member ---
 window.openAddMemberModal = () => {
@@ -2437,15 +2380,7 @@ window.exportPaymentsToExcel = () => {
     ui.alert('Excel (CSV) exportado correctamente', 'success');
 }
 
-
-
-function formatDate(isoString) {
-    if (!isoString) return '-';
-    // If we created it with new Date().toISOString(), it is UTC.
-    // Display in local time
-    const d = new Date(isoString);
-    return d.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
-}
+// NOTE: formatDate is now imported from ./src/utils.js
 
 // ===== KEYBOARD SHORTCUTS =====
 function setupKeyboardShortcuts() {
