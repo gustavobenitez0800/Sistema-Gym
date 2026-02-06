@@ -199,8 +199,7 @@ document.addEventListener('DOMContentLoaded', () => {
         updateMonthDisplays();
         initializeDatePicker();
 
-        // NEW: Setup keyboard shortcuts
-        // NEW: Setup keyboard shortcuts
+        // Setup keyboard shortcuts
         setupKeyboardShortcuts();
 
         // Show App Version
@@ -280,8 +279,9 @@ document.addEventListener('DOMContentLoaded', () => {
             if (actions) actions.innerHTML = ``;
         });
 
-        ipcRenderer.on('update_available', () => {
-            showNotification('Nueva versión disponible. Descargando...', 'Actualizando', 'download');
+        ipcRenderer.on('update_available', (event, info) => {
+            const versionInfo = info && info.version ? ` v${info.version}` : '';
+            showNotification(`Nueva versión${versionInfo} disponible. Descargando...`, 'Actualizando', 'download');
             if (actions) actions.innerHTML = `<button class="btn-dismiss">Ocultar</button>`;
         });
 
@@ -299,11 +299,12 @@ document.addEventListener('DOMContentLoaded', () => {
             }, 4000);
         });
 
-        ipcRenderer.on('update_downloaded', () => {
-            showNotification('La actualización está lista para instalarse.', 'Actualización Lista', 'install');
+        ipcRenderer.on('update_downloaded', (event, info) => {
+            const versionInfo = info && info.version ? ` v${info.version}` : '';
+            showNotification(`¡Actualización${versionInfo} descargada! Lista para instalar.`, 'Actualización Lista', 'install');
             if (actions) {
                 actions.innerHTML = `
-                    <button class="btn-update">Reiniciar Ahora</button>
+                    <button class="btn-update" style="background:var(--primary);color:#000;font-weight:bold;">🚀 Reiniciar Ahora</button>
                     <button class="btn-dismiss">Más tarde</button>
                 `;
             }
