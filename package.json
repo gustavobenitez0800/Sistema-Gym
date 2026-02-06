@@ -1,6 +1,6 @@
 {
   "name": "ayd-funcional-gym",
-  "version": "1.0.29",
+  "version": "1.0.30",
   "description": "Sistema de Gestion AyD Funcional Gym 2026",
   "repository": {
     "type": "git",
@@ -47,11 +47,12 @@
       "artifactName": "AyD-Funcional-Gym-Setup-${version}.${ext}"
     },
     "nsis": {
-      "oneClick": false,
+      "oneClick": true,
       "perMachine": false,
-      "allowToChangeInstallationDirectory": true
+      "allowToChangeInstallationDirectory": false,
+      "deleteAppDataOnUninstall": false
     },
-    "asar": false,
+    "asar": true,
     "directories": {
       "output": "dist"
     }
