@@ -1,35 +1,26 @@
 
 import { supabase } from './src/supabaseClient.js';
 import { whatsappService } from './src/whatsappService.js';
-// IPC Renderer for Electron communication
 const { ipcRenderer } = require('electron');
 
-// Global update function for the button
-window.checkForUpdates = () => {
-    ipcRenderer.send('manual-check-for-updates');
-};
+// ===== DEBUG MODE - Set to false in production =====
+const DEBUG_MODE = false;
+const log = (...args) => DEBUG_MODE && console.log(...args);
 
-// Debug helper - shows errors visually on mobile
-function showDebugError(message, error = null) {
-    console.error('[DEBUG]', message, error);
-    const errorEl = document.getElementById('login-error');
-    if (errorEl) {
-        errorEl.textContent = `Debug: ${message}${error ? ' - ' + error.message : ''}`;
-        errorEl.style.display = 'block';
-    }
-}
+// Global update function for the button
+window.checkForUpdates = () => ipcRenderer.send('manual-check-for-updates');
 
 // ===== GLOBAL STATE & CONFIGURATION =====
 let currentDate = new Date();
-currentDate.setDate(1); // Init to current month effectively
-let currentMembers = []; // Cache for search
-let currentFilter = 'all'; // Filter state: all, paid, overdue
-let currentSortOrder = 'last_name_asc'; // Track sort order
+currentDate.setDate(1);
+let currentMembers = [];
+let currentFilter = 'all';
+let currentSortOrder = 'last_name_asc';
 let ITEMS_PER_PAGE = 20;
 let currentPage = 1;
-let filteredMembersCache = []; // Store filtered result for pagination
-let activeMemberIds = new Set(); // Active members (expiration_date >= today)
-let whatsappConnected = false; // WhatsApp connection status
+let filteredMembersCache = [];
+let activeMemberIds = new Set();
+let whatsappConnected = false;
 
 // ===== WHATSAPP AUTO CONFIG FUNCTIONS =====
 window.openWhatsAppConfig = function () {
@@ -139,28 +130,14 @@ ipcRenderer.on('whatsapp-status', (event, status) => {
 
 // Auto-send WhatsApp message function
 async function autoSendWhatsApp(phone, message, type = 'payment') {
-    if (!whatsappConnected) {
-        console.log('[WhatsApp] Not connected, skipping auto-send');
-        return false;
-    }
+    if (!whatsappConnected) return false;
 
-    // Check if auto-send is enabled for this type
-    const toggleId = `auto-send-${type}`;
-    const toggle = document.getElementById(toggleId);
-    if (toggle && !toggle.checked) {
-        console.log(`[WhatsApp] Auto-send disabled for ${type}`);
-        return false;
-    }
+    const toggle = document.getElementById(`auto-send-${type}`);
+    if (toggle && !toggle.checked) return false;
 
     try {
         const result = await ipcRenderer.invoke('whatsapp-send', phone, message);
-        if (result.success) {
-            console.log('[WhatsApp] Message sent successfully');
-            return true;
-        } else {
-            console.error('[WhatsApp] Send failed:', result.error);
-            return false;
-        }
+        return result.success || false;
     } catch (error) {
         console.error('[WhatsApp] Send error:', error);
         return false;
@@ -179,7 +156,7 @@ const validators = {
 
 document.addEventListener('DOMContentLoaded', () => {
     try {
-        console.log('[DEBUG] DOMContentLoaded - supabase:', !!supabase);
+        log('[APP] DOMContentLoaded - supabase:', !!supabase);
 
         if (!supabase) {
             document.body.innerHTML = `
@@ -687,11 +664,11 @@ async function loadDashboard() {
         const overdueCount = Math.max(0, totalMembers - activeCount);
         if (overdueEl) overdueEl.textContent = `+${overdueCount} Vencidos`;
 
-        console.log('[DASHBOARD] Top Cards Updated. Waiting for modules...');
+        log('[DASHBOARD] Top Cards Updated. Waiting for modules...');
 
         // Ensure all modules finished safely
         await subModulesPromise;
-        console.log('[DASHBOARD] All modules loaded.');
+        log('[DASHBOARD] All modules loaded.');
 
     } catch (err) {
         console.error('[DASHBOARD] Critical Error:', err);
@@ -702,18 +679,15 @@ async function loadDashboard() {
 }
 
 async function repairDatabaseAsync() {
-    console.log('[REPAIR] Ejecutando reparación en 2do plano...');
     try {
         const { data: allPayments } = await supabase.from('payments').select('id, month_year');
-        if (allPayments && allPayments.length > 0) {
+        if (allPayments?.length > 0) {
             for (const p of allPayments) {
-                if (p.month_year && p.month_year.includes(' ')) {
-                    const cleaned = p.month_year.replace(/\s/g, '');
-                    await supabase.from('payments').update({ month_year: cleaned }).eq('id', p.id);
+                if (p.month_year?.includes(' ')) {
+                    await supabase.from('payments').update({ month_year: p.month_year.replace(/\s/g, '') }).eq('id', p.id);
                 }
             }
         }
-        console.log('[REPAIR] Finalizado.');
     } catch (e) {
         console.error('[REPAIR] Error:', e);
     }
@@ -784,7 +758,6 @@ window.runDiagnostics = async function () {
 
     // Mostrar resultados
     alert(results.join('\n'));
-    console.log(results.join('\n'));
 
     // Ofrecer reparación si hay problema de espacios
     if (confirm('¿Desea ejecutar la reparación automática de la base de datos?\n\nEsto corregirá espacios en el campo month_year.')) {
@@ -796,8 +769,6 @@ window.runDiagnostics = async function () {
 // REPARACIÓN DE BASE DE DATOS
 // ==========================================
 window.repairDatabase = async function () {
-    console.log('[REPAIR] Iniciando reparación de la base de datos...');
-
     try {
         // 1. Obtener todos los pagos
         const { data: allPayments, error } = await supabase
@@ -823,7 +794,7 @@ window.repairDatabase = async function () {
             const cleaned = original ? original.replace(/\s/g, '') : null;
 
             if (original !== cleaned && cleaned) {
-                console.log(`[REPAIR] Corrigiendo: "${original}" -> "${cleaned}"`);
+                log(`[REPAIR] Corrigiendo: "${original}" -> "${cleaned}"`);
 
                 const { error: updateError } = await supabase
                     .from('payments')
@@ -840,7 +811,6 @@ window.repairDatabase = async function () {
 
         const msg = `✅ REPARACIÓN COMPLETADA\n\nRegistros corregidos: ${repaired} de ${allPayments.length}\n\nRecargando dashboard...`;
         alert(msg);
-        console.log(msg);
 
         // 3. Recargar el dashboard
         loadDashboard();
@@ -3031,4 +3001,4 @@ document.querySelectorAll('.modal-content').forEach(content => {
     });
 });
 
-console.log('[APP] Sistema de Gimnasio v13.0 cargado correctamente.');
+log('[APP] Sistema de Gimnasio cargado correctamente.');
