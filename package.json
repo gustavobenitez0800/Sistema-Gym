@@ -38,7 +38,8 @@
       {
         "provider": "github",
         "owner": "gustavobenitez0800",
-        "repo": "Sistema-Gym"
+        "repo": "Sistema-Gym",
+        "releaseType": "release"
       }
     ],
     "win": {
