@@ -8,8 +8,7 @@ const { ipcRenderer } = window.require('electron');
 window.checkForUpdates = () => ipcRenderer.send('manual-check-for-updates');
 
 // ===== GLOBAL STATE & CONFIGURATION =====
-let currentDate = new Date();
-currentDate.setDate(1);
+let currentDate = new Date(); // Today's real date
 let currentMembers = [];
 let currentFilter = 'all';
 let currentSortOrder = 'last_name_asc';
@@ -335,17 +334,39 @@ function setupEventListeners() {
     const paymentsBody = document.getElementById('payments-history-body');
     if (paymentsBody) {
         paymentsBody.addEventListener('click', (e) => {
-            const btn = e.target.closest('.edit-payment-btn');
-            if (btn) {
-                const id = btn.dataset.id;
-                const date = btn.dataset.date;
-                const expiration = btn.dataset.expiration;
-                const member = btn.dataset.member;
-                const month = btn.dataset.month;
-                const amount = btn.dataset.amount;
-
+            // Edit Payment
+            const editBtn = e.target.closest('.edit-payment-btn');
+            if (editBtn) {
+                const id = editBtn.dataset.id;
+                const date = editBtn.dataset.date;
+                const expiration = editBtn.dataset.expiration;
+                const member = editBtn.dataset.member;
+                const month = editBtn.dataset.month;
+                const amount = editBtn.dataset.amount;
                 openEditPaymentModal(id, date, expiration, member, month, amount);
+                return;
             }
+
+            // Delete Payment
+            const deleteBtn = e.target.closest('.delete-payment-btn');
+            if (deleteBtn) {
+                const id = deleteBtn.dataset.id;
+                const member = deleteBtn.dataset.member;
+                const month = deleteBtn.dataset.month;
+                deletePayment(id, member, month);
+            }
+        });
+    }
+
+    // Payment Search Input (debounced)
+    const paymentSearchInput = document.getElementById('search-payment-input');
+    if (paymentSearchInput) {
+        let paymentSearchTimer;
+        paymentSearchInput.addEventListener('input', () => {
+            clearTimeout(paymentSearchTimer);
+            paymentSearchTimer = setTimeout(() => {
+                filterPayments(paymentSearchInput.value);
+            }, 300);
         });
     }
 }
@@ -398,7 +419,8 @@ function refreshCurrentView() {
 
 // --- Global Month Logic ---
 window.changeGlobalMonth = function (offset) {
-    // Modify currentDate by offset months
+    // Set day to 1 before changing month to avoid overflow (e.g., Jan 31 → Feb 31 = Mar 3)
+    currentDate.setDate(1);
     currentDate.setMonth(currentDate.getMonth() + offset);
     updateMonthDisplays();
     initializeDatePicker();
@@ -599,10 +621,10 @@ async function loadDashboard() {
         currentPayments.forEach(p => totalBalance += parseFloat(p.amount || 0));
         if (balanceEl) balanceEl.textContent = formatCurrency(totalBalance);
 
-        // 2. Active Members
+        // 2. Active Members (use local set for dashboard display — don't overwrite global)
         const activePayments = activeRes.data || [];
-        activeMemberIds = new Set(activePayments.map(p => p.member_id)); // Update global Set
-        const activeCount = activeMemberIds.size;
+        const dashboardActiveIds = new Set(activePayments.map(p => p.member_id));
+        const activeCount = dashboardActiveIds.size;
         if (totalMembersEl) totalMembersEl.textContent = `${activeCount} Activos`;
 
         // 3. Growth
@@ -641,6 +663,7 @@ async function loadDashboard() {
 
 async function repairDatabaseAsync() {
     try {
+        // 1. Fix month_year spaces
         const { data: allPayments } = await supabase.from('payments').select('id, month_year');
         if (allPayments?.length > 0) {
             for (const p of allPayments) {
@@ -649,8 +672,58 @@ async function repairDatabaseAsync() {
                 }
             }
         }
+
+        // 2. Remove duplicate payments (keep most recent per member+month)
+        await removeDuplicatePayments();
     } catch (e) {
         console.error('[REPAIR] Error:', e);
+    }
+}
+
+async function removeDuplicatePayments() {
+    try {
+        const { data: allPayments, error } = await supabase
+            .from('payments')
+            .select('id, member_id, month_year, created_at')
+            .order('created_at', { ascending: false });
+
+        if (error || !allPayments) return;
+
+        // Group by member_id + month_year
+        const groups = {};
+        allPayments.forEach(p => {
+            const key = `${p.member_id}_${p.month_year}`;
+            if (!groups[key]) groups[key] = [];
+            groups[key].push(p);
+        });
+
+        // Find duplicates (groups with more than 1 entry)
+        const idsToDelete = [];
+        for (const key in groups) {
+            const entries = groups[key];
+            if (entries.length > 1) {
+                // Keep the first (most recent by created_at), delete the rest
+                for (let i = 1; i < entries.length; i++) {
+                    idsToDelete.push(entries[i].id);
+                }
+            }
+        }
+
+        if (idsToDelete.length > 0) {
+            console.log(`[REPAIR] Removing ${idsToDelete.length} duplicate payments...`);
+            const { error: delError } = await supabase
+                .from('payments')
+                .delete()
+                .in('id', idsToDelete);
+
+            if (delError) {
+                console.error('[REPAIR] Error deleting duplicates:', delError);
+            } else {
+                console.log(`[REPAIR] Successfully removed ${idsToDelete.length} duplicate payments.`);
+            }
+        }
+    } catch (e) {
+        console.error('[REPAIR] Duplicate removal error:', e);
     }
 }
 
@@ -1120,9 +1193,8 @@ async function loadAnnualSummary() {
             updateMonthDisplays();
             initializeDatePicker();
 
-            // Refresh views
-            loadDashboard(); // This will re-trigger loadAnnualSummary but that's fine
-            loadMembers(); // Pre-load just in case
+            // Refresh views (loadDashboard already calls loadMembers internally)
+            loadDashboard();
         };
 
         // Add hover effect class
@@ -1267,34 +1339,26 @@ async function loadMembers() {
 
 
 async function loadMemberPaymentsStatus() {
-    // Logic Change: 
-    // "Active" means they have a payment with expiration_date >= TODAY.
-    // It doesn't matter what "Month" is selected in the global view anymore for the *Status Check*,
-    // BUT usually we want to know if they paid for the *current view month*.
+    // "Active" means they have a payment with expiration_date >= TODAY (real-time check).
+    // Status is based on today's date, NOT the selected historical month.
 
-    // However, user asked: "if that date passed, mark red". 
-    // This implies status is "Real Time" based on today, NOT based on the selected historical month.
-
-    const todayISO = new Date().toISOString();
+    // Use date-only at start of day to avoid timezone issues with date comparisons
+    const today = new Date();
+    const todayDateOnly = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}T00:00:00`;
 
     // Fetch members who have a valid expiration date in the future (or today)
-    const { data: payments } = await supabase
+    const { data: payments, error } = await supabase
         .from('payments')
         .select('member_id')
-        .gte('expiration_date', todayISO);
+        .gte('expiration_date', todayDateOnly);
 
-    activeMemberIds = new Set(payments?.map(p => p.member_id));
+    if (error) {
+        console.error('[PAYMENTS STATUS] Error loading payment status:', error.message);
+    }
+
+    activeMemberIds = new Set(payments?.map(p => p.member_id) || []);
 
     return activeMemberIds;
-
-    // Also, for the CURRENT MONTH VIEW, we might want to know who paid specifically for this month
-    // to keep the "Pagado" badge relevant to the view?
-    // Actually, usually "Vencido" overrides everything. 
-    // If I paid for January, but my sub expires Jan 15th, and today is Jan 20th... likely I haven't paid for Feb yet or my Jan sub is done.
-
-    // Let's stick to the User Request: "if date passed -> red".
-    // So 'activeMemberIds' will essentially be "Not Vencido IDs".
-    // If ID is NOT in this set -> Vencido.
 }
 
 // --- Pagination Logic ---
@@ -1511,6 +1575,7 @@ window.exportMembersToExcel = () => {
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+    URL.revokeObjectURL(url); // Free memory
 
     ui.alert('Lista de alumnos exportada correctamente', 'success');
 }
@@ -1740,7 +1805,9 @@ async function handleEditMember(e) {
         closeEditMemberModal();
         ui.alert('Alumno actualizado correctamente.', 'success');
         loadMembers();
-        e.target.reset();
+        // Reset the form using its ID rather than e.target which may not be the form
+        const form = document.getElementById('edit-member-form');
+        if (form) form.reset();
     }
 }
 
@@ -1765,18 +1832,46 @@ window.deleteMember = async (id) => {
 }
 
 // --- Payments ---
+let isProcessingPayment = false; // Guard against double submission
+
 window.openPaymentModal = (id, name) => {
+    // Reset processing guard when opening modal
+    isProcessingPayment = false;
+
     document.getElementById('payment-member-id').value = id;
     document.getElementById('payment-member-name').textContent = name;
-    document.getElementById('payment-modal').classList.remove('hidden');
+
+    // Reset form fields completely before showing
+    document.getElementById('payment-form').reset();
+    document.getElementById('payment-amount').value = '';
+
+    // Reset quick amount button visual states
+    document.querySelectorAll('.quick-amount-btn').forEach(btn => {
+        btn.style.transform = 'scale(1)';
+        btn.style.background = 'transparent';
+        btn.style.color = 'var(--primary)';
+        btn.style.border = '1px solid var(--primary)';
+    });
+
+    // Reset payment method to default
+    const methodSelect = document.getElementById('payment-method-select');
+    if (methodSelect) methodSelect.selectedIndex = 0;
+
+    // Re-enable submit button (may have been disabled from previous submission)
+    const submitBtn = document.querySelector('#payment-form button[type="submit"]');
+    if (submitBtn) {
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'Registrar Pago';
+    }
 
     // Generate Dynamic Month Options Strict
     generatePaymentMonthOptions();
 
-    // Set default to current iso selection or real current month
-    // Usually user wants to pay for *current selected month* or *real current month*?
-    // Let's default to the *global view month* for convenience.
+    // Default to the *global view month* for convenience
     document.getElementById('payment-month').value = getCurrentMonthISO();
+
+    // Re-set member id after form.reset() cleared it
+    document.getElementById('payment-member-id').value = id;
 
     // Default Date -> Today
     const today = new Date();
@@ -1792,6 +1887,8 @@ window.openPaymentModal = (id, name) => {
     const e_mm = String(exp.getMonth() + 1).padStart(2, '0');
     const e_dd = String(exp.getDate()).padStart(2, '0');
     document.getElementById('payment-expiration-input').value = `${e_yyyy}-${e_mm}-${e_dd}`;
+
+    document.getElementById('payment-modal').classList.remove('hidden');
 };
 
 // Quick amount selection
@@ -1837,8 +1934,47 @@ window.closePaymentModal = () => {
     document.getElementById('payment-modal').classList.add('hidden');
 };
 
+// --- Delete Payment ---
+async function deletePayment(paymentId, memberName, monthName) {
+    const confirmed = await ui.confirm(`¿Estás seguro de que quieres eliminar el pago de ${memberName} (${monthName})? Esta acción no se puede deshacer.`);
+    if (!confirmed) return;
+
+    try {
+        const { error } = await supabase
+            .from('payments')
+            .delete()
+            .eq('id', paymentId);
+
+        if (error) {
+            ui.alert('Error al eliminar el pago: ' + error.message, 'error');
+        } else {
+            ui.alert('Pago eliminado correctamente.', 'success');
+            // If we're showing duplicates, refresh that view instead of the normal month view
+            if (showingDuplicates) {
+                showingDuplicates = false; // Reset so it re-fetches
+                await showDuplicatePayments();
+            } else {
+                await loadPaymentsHistory();
+            }
+            await loadMembers();
+            loadDashboard();
+        }
+    } catch (err) {
+        console.error('[DELETE PAYMENT] Error:', err);
+        ui.alert('Error inesperado al eliminar el pago.', 'error');
+    }
+}
+window.deletePayment = deletePayment;
+
 async function handleAddPayment(e) {
     e.preventDefault();
+
+    // Guard against double submission (race condition protection)
+    if (isProcessingPayment) {
+        console.warn('[PAYMENTS] Payment already being processed, ignoring duplicate submit.');
+        return;
+    }
+
     const member_id = document.getElementById('payment-member-id').value;
     const month_year = document.getElementById('payment-month').value;
     const amount = document.getElementById('payment-amount').value;
@@ -1846,7 +1982,11 @@ async function handleAddPayment(e) {
     const expiration_date_val = document.getElementById('payment-expiration-input').value; // YYYY-MM-DD
     const payment_method = document.getElementById('payment-method-select').value;
 
-    // Validation
+    // Basic field validation
+    if (!member_id) {
+        ui.alert('Error interno: no se identificó al alumno. Cierre el modal e intente de nuevo.', 'error');
+        return;
+    }
     if (!validators.isPositiveNumber(amount)) {
         ui.alert('El monto debe ser un número positivo', 'error');
         return;
@@ -1860,32 +2000,16 @@ async function handleAddPayment(e) {
         return;
     }
 
-    // NEW: Validate that expiration is after payment date
-    const paymentDate = new Date(payment_date_val);
-    const expirationDate = new Date(expiration_date_val);
-    /* 
+    // Validate that expiration is after payment date
+    const paymentDate = new Date(payment_date_val + 'T12:00:00');
+    const expirationDate = new Date(expiration_date_val + 'T12:00:00');
     if (expirationDate <= paymentDate) {
         ui.alert('La fecha de vencimiento debe ser posterior a la fecha de pago', 'error');
         return;
     }
-    */
 
-    // NEW: Check if student already paid for this month
-    const { data: existingPayments, error: checkError } = await supabase
-        .from('payments')
-        .select('id')
-        .eq('member_id', member_id)
-        .eq('month_year', month_year);
-
-    if (checkError) {
-        ui.alert('Error al verificar pagos existentes: ' + checkError.message, 'error');
-        return;
-    }
-
-    if (existingPayments && existingPayments.length > 0) {
-        ui.alert('Este alumno ya tiene un pago registrado para este mes. Use el botón de editar (✏️) para modificar las fechas.', 'error');
-        return;
-    }
+    // Set processing guard BEFORE any async work
+    isProcessingPayment = true;
 
     // Disable button to prevent double submission
     const submitBtn = e.target.querySelector('button[type="submit"]');
@@ -1893,48 +2017,77 @@ async function handleAddPayment(e) {
     submitBtn.disabled = true;
     submitBtn.textContent = 'Registrando...';
 
-    const { error } = await supabase.from('payments').insert([{
-        member_id,
-        month_year,
-        amount,
-        payment_method,
-        payment_date: payment_date_val ? new Date(payment_date_val + 'T12:00:00').toISOString() : new Date().toISOString(),
-        expiration_date: expiration_date_val ? new Date(expiration_date_val + 'T12:00:00').toISOString() : null
-    }]);
+    try {
+        // Check if student already paid for this month (server-side duplicate check)
+        const { data: existingPayments, error: checkError } = await supabase
+            .from('payments')
+            .select('id')
+            .eq('member_id', member_id)
+            .eq('month_year', month_year.trim());
 
-    // Re-enable button
-    submitBtn.disabled = false;
-    submitBtn.textContent = originalText;
+        if (checkError) {
+            ui.alert('Error al verificar pagos existentes: ' + checkError.message, 'error');
+            return;
+        }
 
-    if (error) {
-        ui.alert('Error: ' + error.message, 'error');
-    } else {
-        closePaymentModal();
-        ui.alert('Pago registrado correctamente.', 'success');
-        loadMembers();
-        loadDashboard();
-        e.target.reset();
+        if (existingPayments && existingPayments.length > 0) {
+            ui.alert('Este alumno ya tiene un pago registrado para este mes. Use el botón de editar (✏️) en el historial de pagos para modificarlo.', 'error');
+            return;
+        }
 
-        // WhatsApp Automation: Payment Confirmation
-        const member = currentMembers.find(m => m.id === member_id);
-        if (member && member.contact) {
-            const monthName = getMonthName(month_year);
-            const msg = whatsappService.getPaymentConfirmationMessage(member, amount, monthName);
+        const { error } = await supabase.from('payments').insert([{
+            member_id,
+            month_year: month_year.trim(),
+            amount: parseFloat(amount),
+            payment_method,
+            payment_date: new Date(payment_date_val + 'T12:00:00').toISOString(),
+            expiration_date: new Date(expiration_date_val + 'T12:00:00').toISOString()
+        }]);
 
-            // Try auto-send first if connected
-            if (whatsappConnected) {
-                const sent = await autoSendWhatsApp(member.contact, msg, 'payment');
-                if (sent) {
-                    console.log('[WhatsApp] Payment confirmation sent automatically');
-                }
-            } else {
-                // Fallback to manual wa.me link
-                const confirmed = await ui.confirm(`¿Deseas enviar una confirmación de pago a ${member.first_name} por WhatsApp?`);
-                if (confirmed) {
-                    whatsappService.sendWhatsApp(member.contact, msg);
+        if (error) {
+            ui.alert('Error: ' + error.message, 'error');
+        } else {
+            closePaymentModal();
+            ui.alert('Pago registrado correctamente.', 'success');
+
+            // Save references before refreshing
+            const savedMemberId = member_id;
+            const savedAmount = amount;
+            const savedMonthYear = month_year;
+
+            // Refresh data — await loadMembers first for immediate table update
+            await loadMembers();
+            loadDashboard();
+
+            // WhatsApp Automation: Payment Confirmation
+            const member = currentMembers.find(m => String(m.id) === String(savedMemberId));
+            if (member && member.contact) {
+                const monthName = getMonthName(savedMonthYear);
+                const msg = whatsappService.getPaymentConfirmationMessage(member, savedAmount, monthName);
+
+                // Try auto-send first if connected
+                if (whatsappConnected) {
+                    const sent = await autoSendWhatsApp(member.contact, msg, 'payment');
+                    if (sent) {
+                        console.log('[WhatsApp] Payment confirmation sent automatically');
+                    }
+                } else {
+                    // Fallback to manual wa.me link
+                    const confirmed = await ui.confirm(`¿Deseas enviar una confirmación de pago a ${member.first_name} por WhatsApp?`);
+                    if (confirmed) {
+                        whatsappService.sendWhatsApp(member.contact, msg);
+                    }
                 }
             }
         }
+    } catch (err) {
+        console.error('[PAYMENTS] Error processing payment:', err);
+        ui.alert('Error inesperado al registrar el pago. Intente de nuevo.', 'error');
+    } finally {
+        // Always re-enable button and reset guard
+        submitBtn.disabled = false;
+        submitBtn.textContent = originalText;
+        isProcessingPayment = false;
     }
 }
 
@@ -2051,14 +2204,12 @@ async function handleEditPayment(e) {
     }
 
     // Validate that expiration is after payment date
-    const paymentDate = new Date(payment_date_val);
-    const expirationDate = new Date(expiration_date_val);
-    /*
+    const paymentDate = new Date(payment_date_val + 'T12:00:00');
+    const expirationDate = new Date(expiration_date_val + 'T12:00:00');
     if (expirationDate <= paymentDate) {
         ui.alert('La fecha de vencimiento debe ser posterior a la fecha de pago', 'error');
         return;
     }
-    */
 
     // Disable button to prevent double submission
     const submitBtn = e.target.querySelector('button[type="submit"]');
@@ -2066,26 +2217,31 @@ async function handleEditPayment(e) {
     submitBtn.disabled = true;
     submitBtn.textContent = 'Guardando...';
 
-    const { error } = await supabase
-        .from('payments')
-        .update({
-            payment_date: new Date(payment_date_val + 'T12:00:00').toISOString(),
-            expiration_date: new Date(expiration_date_val + 'T12:00:00').toISOString()
-        })
-        .eq('id', paymentId);
+    try {
+        const { error } = await supabase
+            .from('payments')
+            .update({
+                payment_date: new Date(payment_date_val + 'T12:00:00').toISOString(),
+                expiration_date: new Date(expiration_date_val + 'T12:00:00').toISOString()
+            })
+            .eq('id', paymentId);
 
-    // Re-enable button
-    submitBtn.disabled = false;
-    submitBtn.textContent = originalText;
-
-    if (error) {
-        ui.alert('Error: ' + error.message, 'error');
-    } else {
-        closeEditPaymentModal();
-        ui.alert('Fechas actualizadas correctamente.', 'success');
-        loadPaymentsHistory();
-        loadMembers();
-        loadDashboard();
+        if (error) {
+            ui.alert('Error: ' + error.message, 'error');
+        } else {
+            closeEditPaymentModal();
+            ui.alert('Fechas actualizadas correctamente.', 'success');
+            await loadPaymentsHistory();
+            await loadMembers();
+            loadDashboard();
+        }
+    } catch (err) {
+        console.error('[EDIT PAYMENT] Error:', err);
+        ui.alert('Error inesperado al actualizar el pago.', 'error');
+    } finally {
+        // Always re-enable button
+        submitBtn.disabled = false;
+        submitBtn.textContent = originalText;
     }
 }
 
@@ -2120,12 +2276,27 @@ async function loadPaymentsHistory() {
         .order('payment_date', { ascending: false });
 
     if (error) {
-        tbody.innerHTML = `< tr > <td colspan="5">Error: ${error.message}</td></tr > `;
+        tbody.innerHTML = `<tr><td colspan="6">Error: ${error.message}</td></tr>`;
         return;
     }
 
     // Cache payments
     cachedPayments = payments;
+
+    // Reset duplicates view state
+    showingDuplicates = false;
+    const dupBtn = document.getElementById('show-duplicates-btn');
+    if (dupBtn) {
+        dupBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none"
+            stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="8" y="2" width="13" height="13" rx="2" ry="2"></rect>
+            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+        </svg> Ver Duplicados`;
+    }
+
+    // Clear search input on fresh load
+    const searchInput = document.getElementById('search-payment-input');
+    if (searchInput) searchInput.value = '';
 
     // Render based on current view mode
     renderPaymentsHistory(payments);
@@ -2152,6 +2323,98 @@ function renderPaymentsHistory(payments) {
     // Always render detailed view
     renderDetailedView(payments, tbody);
 }
+
+function filterPayments(searchTerm) {
+    if (!cachedPayments) return;
+
+    const term = searchTerm.toLowerCase().trim();
+    if (!term) {
+        renderPaymentsHistory(cachedPayments);
+        return;
+    }
+
+    const filtered = cachedPayments.filter(p => {
+        const firstName = p.members?.first_name?.toLowerCase() || '';
+        const lastName = p.members?.last_name?.toLowerCase() || '';
+        const fullName = `${firstName} ${lastName}`;
+        const method = (p.payment_method || '').toLowerCase();
+        const amount = String(p.amount || '');
+
+        return firstName.includes(term) || lastName.includes(term) ||
+            fullName.includes(term) || method.includes(term) || amount.includes(term);
+    });
+
+    renderPaymentsHistory(filtered);
+}
+
+// --- Show Duplicate Payments ---
+let showingDuplicates = false;
+
+window.showDuplicatePayments = async function () {
+    const btn = document.getElementById('show-duplicates-btn');
+
+    // Toggle back to normal view
+    if (showingDuplicates) {
+        showingDuplicates = false;
+        btn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none"
+            stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="8" y="2" width="13" height="13" rx="2" ry="2"></rect>
+            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+        </svg> Ver Duplicados`;
+        loadPaymentsHistory();
+        return;
+    }
+
+    const tbody = document.getElementById('payments-history-body');
+    tbody.innerHTML = '<tr><td colspan="6"><div class="spinner"></div></td></tr>';
+
+    // Fetch ALL payments (not filtered by month)
+    const { data: allPayments, error } = await supabase
+        .from('payments')
+        .select(`id, created_at, payment_date, expiration_date, month_year, amount, payment_method, member_id,
+                 members(first_name, last_name)`)
+        .order('created_at', { ascending: false });
+
+    if (error) {
+        tbody.innerHTML = `<tr><td colspan="6">Error: ${error.message}</td></tr>`;
+        return;
+    }
+
+    // Group by member_id + month_year
+    const groups = {};
+    allPayments.forEach(p => {
+        const key = `${p.member_id}_${p.month_year}`;
+        if (!groups[key]) groups[key] = [];
+        groups[key].push(p);
+    });
+
+    // Get only duplicate groups
+    const duplicates = [];
+    for (const key in groups) {
+        if (groups[key].length > 1) {
+            groups[key].forEach(p => duplicates.push(p));
+        }
+    }
+
+    showingDuplicates = true;
+    btn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none"
+        stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <polyline points="15 18 9 12 15 6"></polyline>
+    </svg> Volver a Pagos del Mes`;
+
+    // Update summary
+    document.getElementById('payments-total').textContent = `${duplicates.length} pagos duplicados`;
+    document.getElementById('payments-count').textContent = duplicates.length;
+
+    tbody.innerHTML = '';
+
+    if (duplicates.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="6" class="empty-state">✅ No se encontraron pagos duplicados.</td></tr>';
+        return;
+    }
+
+    renderDetailedView(duplicates, tbody);
+};
 
 function renderGroupedView(payments, tbody) {
     // Group payments by member and month_year to avoid duplicates
@@ -2233,6 +2496,13 @@ function renderDetailedView(payments, tbody) {
                     data-month="${monthName.replace(/"/g, '&quot;')}"
                     data-amount="${p.amount}">
                     ✏️
+                </button>
+                <button class="action-btn delete-payment-btn" 
+                    title="Eliminar Pago"
+                    data-id="${p.id}"
+                    data-member="${memberName.replace(/"/g, '&quot;')}"
+                    data-month="${monthName.replace(/"/g, '&quot;')}">
+                    🗑️
                 </button>
             </td>
         `;
@@ -2376,6 +2646,7 @@ window.exportPaymentsToExcel = () => {
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+    URL.revokeObjectURL(url); // Free memory
 
     ui.alert('Excel (CSV) exportado correctamente', 'success');
 }

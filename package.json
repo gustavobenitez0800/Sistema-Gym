@@ -50,7 +50,9 @@
       "oneClick": true,
       "perMachine": false,
       "allowToChangeInstallationDirectory": false,
-      "deleteAppDataOnUninstall": false
+      "deleteAppDataOnUninstall": false,
+      "allowElevation": true,
+      "guid": "com.aydfuncional.gym"
     },
     "asar": true,
     "directories": {

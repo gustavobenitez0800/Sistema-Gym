@@ -182,7 +182,10 @@ function createWindow() {
         }
     });
 
-    // mainWindow.webContents.openDevTools(); // Uncomment for debugging
+    // DevTools: only in development
+    if (process.env.NODE_ENV === 'development' || process.argv.includes('--dev')) {
+        mainWindow.webContents.openDevTools();
+    }
 }
 
 app.whenReady().then(() => {

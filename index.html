@@ -462,6 +462,9 @@
                 <div class="header-row">
                     <h2>Historial de Pagos - <span id="payments-month-display">Enero 2026</span></h2>
                     <div class="header-actions">
+                        <input type="text" id="search-payment-input"
+                            placeholder="Buscar por nombre, apellido o método..." class="search-input"
+                            autocomplete="off">
                         <button class="btn-secondary" onclick="exportPaymentsToExcel()">
                             <i class="fas fa-file-excel"></i> Exportar Excel
                         </button>
@@ -488,6 +491,18 @@
                     <div class="summary-item">
                         <span class="summary-label">Cantidad de Pagos:</span>
                         <span class="summary-value" id="payments-count">0</span>
+                    </div>
+                    <div class="summary-item">
+                        <button id="show-duplicates-btn" class="btn-secondary" onclick="showDuplicatePayments()"
+                            style="padding: 6px 14px; font-size: 0.8rem; display: flex; align-items: center; gap: 6px;">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24"
+                                fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                                stroke-linejoin="round">
+                                <rect x="8" y="2" width="13" height="13" rx="2" ry="2"></rect>
+                                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                            </svg>
+                            Ver Duplicados
+                        </button>
                     </div>
                 </div>
                 <div class="table-container">
