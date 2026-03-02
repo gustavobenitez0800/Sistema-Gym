@@ -9,6 +9,11 @@
     <link rel="icon" type="image/x-icon" href="./img/Logo.png">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     <link rel="stylesheet" href="style.css?v=8.0">
+    <style>
+        .employee-mode .owner-only {
+            display: none !important;
+        }
+    </style>
 </head>
 
 <body>
@@ -45,7 +50,7 @@
                 <h2>AyD Gym</h2>
             </div>
             <ul>
-                <li onclick="showSection('dashboard')" class="active-nav">
+                <li id="nav-dashboard" onclick="showSection('dashboard')" class="active-nav owner-only">
                     <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none"
                         stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                         <rect x="3" y="3" width="7" height="7"></rect>
@@ -55,7 +60,7 @@
                     </svg>
                     Dashboard
                 </li>
-                <li onclick="showSection('members')">
+                <li id="nav-members" onclick="showSection('members')">
                     <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none"
                         stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                         <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
@@ -90,9 +95,20 @@
                     </svg>
                     WhatsApp Auto
                 </li>
+                <li onclick="openRegisterEmployeeModal()" class="owner-only" style="color: var(--primary);">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none"
+                        stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
+                        <circle cx="8.5" cy="7" r="4"></circle>
+                        <line x1="20" y1="8" x2="20" y2="14"></line>
+                        <line x1="23" y1="11" x2="17" y2="11"></line>
+                    </svg>
+                    Añadir Empleado
+                </li>
             </ul>
             <div class="month-selector-container">
-                <label>Fecha de Operación</label>
+                <label>Fecha de Operación <span id="real-time-clock"
+                        style="float:right; font-weight:normal; font-size:0.85em; opacity:0.8; margin-top: 3px;"></span></label>
                 <div class="date-quick-actions">
                     <button class="quick-btn" onclick="setToday()" title="Ir a hoy">
                         <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none"
@@ -159,7 +175,7 @@
 
         <main class="content">
             <!-- Dashboard Section -->
-            <section id="dashboard" class="content-section active-section">
+            <section id="dashboard" class="content-section active-section owner-only">
                 <!-- Header with Month Display -->
                 <div class="section-header">
                     <h2>Panel General - <span id="current-month-display">Enero 2026</span></h2>
@@ -423,6 +439,7 @@
                                 <th>Nombre</th>
                                 <th>Apellido</th>
                                 <th>Contacto</th>
+                                <th>Fecha de Pago</th>
                                 <th>Cuota (<span id="th-month-display">Mes Actual</span>)</th>
                                 <th>Acciones</th>
                             </tr>
@@ -468,6 +485,10 @@
                         <button class="btn-secondary" onclick="exportPaymentsToExcel()">
                             <i class="fas fa-file-excel"></i> Exportar Excel
                         </button>
+                        <button class="btn-primary owner-only" onclick="exportDailyEarningsToCSV()"
+                            style="background-color: #10B981; border-color: #10B981;">
+                            <i class="fas fa-file-csv"></i> Ganancias Diarias
+                        </button>
                         <button class="btn-primary" onclick="exportPaymentsToPDF()">
                             <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"
                                 fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
@@ -484,7 +505,7 @@
 
                 <!-- Payment Summary Card -->
                 <div class="payment-summary-card">
-                    <div class="summary-item">
+                    <div class="summary-item owner-only">
                         <span class="summary-label">Total del Mes:</span>
                         <span class="summary-value" id="payments-total">$0</span>
                     </div>
@@ -639,10 +660,13 @@
             <div style="margin-bottom: 20px; padding: 10px; background: rgba(255,214,0,0.1); border-radius: 4px;">
                 <p><strong>Alumno:</strong> <span id="edit-payment-member-name"></span></p>
                 <p><strong>Mes:</strong> <span id="edit-payment-month"></span></p>
-                <p><strong>Monto:</strong> <span id="edit-payment-amount"></span></p>
             </div>
             <form id="edit-payment-form">
                 <input type="hidden" id="edit-payment-id">
+
+                <label for="edit-payment-amount">Monto ($):</label>
+                <input type="number" id="edit-payment-amount" step="0.01" required>
+
                 <label for="edit-payment-date">Fecha de Pago:</label>
                 <input type="date" id="edit-payment-date" required>
 
@@ -718,6 +742,45 @@
                     placeholder="Escribir observaciones médicas, lesiones..."></textarea>
                 <button type="submit">Guardar Observaciones</button>
             </form>
+        </div>
+    </div>
+
+    <!-- Objectives Modal -->
+    <div id="objectives-modal" class="modal hidden">
+        <div class="modal-content">
+            <span class="close-btn" onclick="closeObjectivesModal()">&times;</span>
+            <h2>Objetivos del Alumno</h2>
+            <h3 id="objectives-member-name">Alumno</h3>
+            <form id="objectives-form">
+                <input type="hidden" id="objectives-member-id">
+                <textarea id="member-objectives" rows="6"
+                    placeholder="Escribir lo que quiere lograr el alumno (ej. bajar de peso, ganar masa muscular...)"
+                    required></textarea>
+                <button type="submit">Guardar Objetivos</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Register Employee Modal -->
+    <div id="register-employee-modal" class="modal hidden">
+        <div class="modal-content">
+            <span class="close-btn" onclick="closeRegisterEmployeeModal()">&times;</span>
+            <h2>Registrar Nuevo Empleado</h2>
+            <p style="color: #999; margin-bottom: 20px; font-size: 0.9em;">Crea una cuenta para tu personal. Ellos no
+                verán el Dashboard ni los ingresos totales del gimnasio, solo podrán registrar pagos y gestionar
+                alumnos.</p>
+            <form id="register-employee-form">
+                <div class="form-group">
+                    <label>Email del Empleado</label>
+                    <input type="email" id="emp-email" placeholder="empleado@gym.com" required>
+                </div>
+                <div class="form-group">
+                    <label>Contraseña</label>
+                    <input type="password" id="emp-password" placeholder="Mínimo 6 caracteres" required minlength="6">
+                </div>
+                <button type="submit" class="btn-primary" style="margin-top: 15px;">Crear Cuenta de Empleado</button>
+            </form>
+            <div id="emp-register-msg" style="margin-top: 15px; font-weight: bold; text-align: center;"></div>
         </div>
     </div>
 

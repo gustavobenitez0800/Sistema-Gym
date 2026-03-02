@@ -15,7 +15,9 @@ let currentSortOrder = 'last_name_asc';
 let ITEMS_PER_PAGE = 20;
 let currentPage = 1;
 let filteredMembersCache = [];
+let currentUserRole = 'EMPLOYEE'; // Default to employee to be safe
 let activeMemberIds = new Set();
+let latestPaymentDates = new Map();
 let whatsappConnected = false;
 
 // ===== WHATSAPP AUTO CONFIG FUNCTIONS =====
@@ -311,6 +313,8 @@ function setupEventListeners() {
     document.getElementById('edit-payment-form').addEventListener('submit', handleEditPayment);
     // Notes
     document.getElementById('notes-form').addEventListener('submit', handleSaveNotes);
+    // Objectives
+    document.getElementById('objectives-form').addEventListener('submit', handleSaveObjectives);
 
     // Date Picker
     const datePicker = document.getElementById('operation-date-picker');
@@ -465,6 +469,17 @@ function updateMonthDisplays() {
 async function checkSession() {
     const { data: { session } } = await supabase.auth.getSession();
     if (session) {
+        // Here we determine the role for simplicity: 
+        // We will assume the owner is the one who has gustavobenitez in their email or we explicitly check
+        const email = session.user.email.toLowerCase();
+
+        // Let's make an explicit check
+        // We consider the owner if the email matches the allowed owner emails
+        if (email === 'gustavobenitez0800@gmail.com' || email === 'ayd@admin.com' || email.includes('dueño') || email.includes('owner')) {
+            currentUserRole = 'OWNER';
+        } else {
+            currentUserRole = 'EMPLOYEE';
+        }
         showApp();
     } else {
         showLogin();
@@ -488,12 +503,21 @@ async function handleLogin(e) {
         errorMsg.textContent = 'Error: ' + error.message;
     } else {
         errorMsg.textContent = '';
+
+        const emailToLogin = data.user?.email?.toLowerCase();
+        if (emailToLogin && (emailToLogin === 'gustavobenitez0800@gmail.com' || emailToLogin === 'ayd@admin.com' || emailToLogin.includes('dueño') || emailToLogin.includes('owner'))) {
+            currentUserRole = 'OWNER';
+        } else {
+            currentUserRole = 'EMPLOYEE';
+        }
+
         showApp();
     }
 }
 
 async function handleLogout() {
     await supabase.auth.signOut();
+    currentUserRole = 'EMPLOYEE';
     showLogin();
 }
 
@@ -509,7 +533,13 @@ function showApp() {
     document.getElementById('app-layout').classList.add('active');
     document.getElementById('app-layout').classList.remove('hidden');
 
-    loadDashboard();
+    if (currentUserRole === 'OWNER') {
+        document.body.classList.remove('employee-mode');
+        showSection('dashboard');
+    } else {
+        document.body.classList.add('employee-mode');
+        showSection('members');
+    }
 }
 
 window.showSection = (sectionId, event) => {
@@ -1304,7 +1334,7 @@ function renderIncomeChart(statsByMonth, sortedMonths) {
 // --- Members ---
 async function loadMembers() {
     const tbody = document.getElementById('members-table-body');
-    tbody.innerHTML = '<tr><td colspan="5"><div class="spinner"></div></td></tr>';
+    tbody.innerHTML = '<tr><td colspan="6"><div class="spinner"></div></td></tr>';
 
     try {
         // Fetch Active Members
@@ -1315,7 +1345,7 @@ async function loadMembers() {
             .order('last_name');
 
         if (error) {
-            tbody.innerHTML = `<tr><td colspan="5">Error: ${error.message}</td></tr>`;
+            tbody.innerHTML = `<tr><td colspan="6">Error: ${error.message}</td></tr>`;
             return;
         }
 
@@ -1332,7 +1362,7 @@ async function loadMembers() {
         updateQuickStats();
     } catch (err) {
         console.error('[MEMBERS] Error loading members:', err);
-        tbody.innerHTML = `<tr><td colspan="5">Error al cargar alumnos</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="6">Error al cargar alumnos</td></tr>`;
     }
 }
 
@@ -1357,6 +1387,20 @@ async function loadMemberPaymentsStatus() {
     }
 
     activeMemberIds = new Set(payments?.map(p => p.member_id) || []);
+
+    const { data: allPayments, error: datesError } = await supabase
+        .from('payments')
+        .select('member_id, payment_date')
+        .order('payment_date', { ascending: false });
+
+    latestPaymentDates = new Map();
+    if (!datesError && allPayments) {
+        allPayments.forEach(p => {
+            if (!latestPaymentDates.has(p.member_id) && p.payment_date) {
+                latestPaymentDates.set(p.member_id, p.payment_date);
+            }
+        });
+    }
 
     return activeMemberIds;
 }
@@ -1386,7 +1430,7 @@ function renderPagination() {
     tbody.innerHTML = '';
 
     if (pageData.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="5" class="empty-state">No se encontraron alumnos.</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="6" class="empty-state">No se encontraron alumnos.</td></tr>';
         return;
     }
 
@@ -1395,6 +1439,15 @@ function renderPagination() {
         const isOverdue = !isActive;
         const nameClass = isOverdue ? 'text-overdue' : '';
         const rowClass = isOverdue ? 'row-overdue' : '';
+
+        let paymentDateText = '-';
+        if (latestPaymentDates.has(member.id)) {
+            const dateISO = latestPaymentDates.get(member.id);
+            const dateObj = new Date(dateISO);
+            paymentDateText = dateObj.toLocaleDateString('es-AR', {
+                day: '2-digit', month: '2-digit', year: 'numeric'
+            });
+        }
 
         const tr = document.createElement('tr');
         tr.className = rowClass;
@@ -1432,6 +1485,7 @@ function renderPagination() {
             <td class="${nameClass}">${member.first_name}</td>
             <td class="${nameClass}">${member.last_name}</td>
             <td>${member.contact}${scheduleDisplay}</td>
+            <td>${paymentDateText}</td>
             <td>${statusBadge}</td>
             <td>
                 <button class="action-btn" title="Enviar WhatsApp" onclick="sendQuickWhatsApp('${member.id}', '${safeFirstName}', '${safeContact}', ${isOverdue})">
@@ -1445,6 +1499,9 @@ function renderPagination() {
                 </button>
                 <button class="action-btn" title="Observaciones Médicas" onclick="openNotesModal('${member.id}', '${fullName}', '${safeNotes}')">
                     <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color:#3B82F6;"><path d="M22 12h-4l-3 9L9 3l-3 9H2"></path></svg>
+                </button>
+                <button class="action-btn" title="Objetivos" onclick="openObjectivesModal('${member.id}', '${fullName}')">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color:#10B981;"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"></path></svg>
                 </button>
                 <button class="action-btn btn-delete" title="Eliminar Alumno" onclick="deleteMember('${member.id}')">
                     <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color:#ef4444;"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
@@ -2145,6 +2202,58 @@ async function handleSaveNotes(e) {
     }
 }
 
+// --- Objectives ---
+window.openObjectivesModal = (id, name) => {
+    fetchAndShowObjectives(id, name);
+};
+
+window.closeObjectivesModal = () => {
+    document.getElementById('objectives-modal').classList.add('hidden');
+};
+
+async function fetchAndShowObjectives(id, name) {
+    document.getElementById('objectives-member-id').value = id;
+    document.getElementById('objectives-member-name').textContent = name;
+    document.getElementById('member-objectives').value = "Cargando...";
+    document.getElementById('objectives-modal').classList.remove('hidden');
+
+    const { data, error } = await supabase
+        .from('members')
+        .select('objectives')
+        .eq('id', id)
+        .single();
+
+    if (!error && data) {
+        document.getElementById('member-objectives').value = data.objectives || "";
+    } else {
+        document.getElementById('member-objectives').value = "";
+    }
+}
+
+async function handleSaveObjectives(e) {
+    e.preventDefault();
+    const id = document.getElementById('objectives-member-id').value;
+    const objectives = document.getElementById('member-objectives').value;
+
+    const { error } = await supabase
+        .from('members')
+        .update({ objectives: objectives })
+        .eq('id', id);
+
+    if (error) {
+        // Handle case where column might not exist yet
+        if (error.message && error.message.includes('column "objectives" of relation "members" does not exist')) {
+            ui.alert('Error: La base de datos no tiene la columna de objetivos. Por favor ejecute el script SQL.', 'error');
+        } else {
+            ui.alert('Error al guardar objetivos: ' + error.message, 'error');
+        }
+    } else {
+        closeObjectivesModal();
+        ui.alert('Objetivos guardados.', 'success');
+        loadMembers();
+    }
+}
+
 // --- Quick WhatsApp from Table ---
 // --- Quick WhatsApp from Table ---
 window.sendQuickWhatsApp = (id, paramsFirstName, paramsContact, isOverdue) => {
@@ -2650,6 +2759,95 @@ window.exportPaymentsToExcel = () => {
 
     ui.alert('Excel (CSV) exportado correctamente', 'success');
 }
+
+// Export Profits to Excel (CSV format)
+window.exportProfitsToExcel = (total) => {
+    const table = document.querySelector('#dashboard-summary-table');
+    const rows = table.querySelectorAll('tbody tr');
+
+    let csvContent = '\uFEFF'; // BOM for UTF-8
+    csvContent += 'Concepto,Valor\n';
+
+    rows.forEach(row => {
+        const cells = row.querySelectorAll('td');
+        if (cells.length === 2) {
+            const concept = cells[0].textContent.trim();
+            const value = cells[1].textContent.trim();
+            csvContent += `"${concept}","${value}"\n`;
+        }
+    });
+
+    const today = new Date();
+    const yyyy = today.getFullYear();
+    const mm = String(today.getMonth() + 1).padStart(2, '0'); // Months are 0-indexed
+    const dd = String(today.getDate()).padStart(2, '0');
+
+    // Create and download file
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    const url = URL.createObjectURL(blob);
+    link.setAttribute('href', url);
+    link.setAttribute('download', `ganancias_${yyyy}${mm}${dd}.csv`);
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+
+    ui.alert(`Ganancias exportadas correctamente. Total: $${total}`, 'success');
+}
+
+// --- Create Employee Account ---
+window.openRegisterEmployeeModal = () => {
+    document.getElementById('emp-email').value = '';
+    document.getElementById('emp-password').value = '';
+    document.getElementById('emp-register-msg').textContent = '';
+    document.getElementById('emp-register-msg').className = '';
+    document.getElementById('register-employee-modal').classList.remove('hidden');
+};
+
+window.closeRegisterEmployeeModal = () => {
+    document.getElementById('register-employee-modal').classList.add('hidden');
+};
+
+document.getElementById('register-employee-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const email = document.getElementById('emp-email').value;
+    const password = document.getElementById('emp-password').value;
+    const msgEl = document.getElementById('emp-register-msg');
+
+    const submitBtn = e.target.querySelector('button[type="submit"]');
+    const originalText = submitBtn.textContent;
+    submitBtn.disabled = true;
+    submitBtn.textContent = 'Creando cuenta...';
+    msgEl.textContent = '';
+
+    try {
+        // Supabase signUp for creating a new user.
+        // It's important that email confirmations are turned off in Supabase settings
+        const { data, error } = await supabase.auth.signUp({
+            email: email,
+            password: password
+        });
+
+        if (error) {
+            msgEl.textContent = `Error: ${error.message}`;
+            msgEl.style.color = '#ef4444'; // Red
+        } else {
+            msgEl.textContent = 'Cuenta de empleado creada con éxito.';
+            msgEl.style.color = '#10b981'; // Green
+            setTimeout(() => {
+                closeRegisterEmployeeModal();
+            }, 2000);
+        }
+    } catch (err) {
+        msgEl.textContent = `Error inesperado: ${err.message}`;
+        msgEl.style.color = '#ef4444';
+    } finally {
+        submitBtn.disabled = false;
+        submitBtn.textContent = originalText;
+    }
+});
 
 // NOTE: formatDate is now imported from ./src/utils.js
 

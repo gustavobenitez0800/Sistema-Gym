@@ -38,6 +38,7 @@ CREATE TABLE IF NOT EXISTS members (
 -- Run this ALTER to add columns to existing tables:
 -- ALTER TABLE members ADD COLUMN IF NOT EXISTS schedule_time TEXT;
 -- ALTER TABLE members ADD COLUMN IF NOT EXISTS attendance_days TEXT;
+-- ALTER TABLE members ADD COLUMN IF NOT EXISTS objectives TEXT;
 
 -- -----------------------------------------------------------------------------
 -- TABLE: payments
