@@ -108,7 +108,7 @@ autoUpdater.on('update-available', (info) => {
     log.info('Update available.', info);
     // Notify Renderer
     if (BrowserWindow.getAllWindows().length > 0) {
-        BrowserWindow.getAllWindows()[0].webContents.send('update_available');
+        BrowserWindow.getAllWindows()[0].webContents.send('update_available', info);
     }
 });
 
@@ -138,7 +138,7 @@ autoUpdater.on('update-downloaded', (info) => {
     log.info('Update downloaded', info);
     // Notify Renderer
     if (BrowserWindow.getAllWindows().length > 0) {
-        BrowserWindow.getAllWindows()[0].webContents.send('update_downloaded');
+        BrowserWindow.getAllWindows()[0].webContents.send('update_downloaded', info);
     }
 });
 

@@ -167,6 +167,17 @@ document.addEventListener('DOMContentLoaded', () => {
         // Setup keyboard shortcuts
         setupKeyboardShortcuts();
 
+        // Real-time clock update
+        const clockEl = document.getElementById('real-time-clock');
+        if (clockEl) {
+            const updateClock = () => {
+                const now = new Date();
+                clockEl.textContent = now.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' });
+            };
+            updateClock();
+            setInterval(updateClock, 60000); // Update every minute
+        }
+
         // Show App Version
         ipcRenderer.invoke('get-app-version').then(version => {
             const versionEl = document.getElementById('app-version');
@@ -296,7 +307,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (actions) actions.innerHTML = `<button class="btn-dismiss">Cerrar</button>`;
         });
     } catch (err) {
-        showDebugError('Error en inicialización', err);
+        console.error('[APP] Error en inicialización:', err);
     }
 });
 
@@ -566,15 +577,24 @@ window.showSection = (sectionId, event) => {
         }
     } else {
         // Fallback for direct calls or initial load if event is not available
-        if (sectionId === 'dashboard') document.querySelector('.sidebar li:nth-child(1)').classList.add('active-nav');
-        if (sectionId === 'members') document.querySelector('.sidebar li:nth-child(2)').classList.add('active-nav');
-        if (sectionId === 'payments') document.querySelector('.sidebar li:nth-child(3)').classList.add('active-nav');
+        const navMap = {
+            'dashboard': '#nav-dashboard',
+            'members': '.sidebar li:nth-child(2)',
+            'payments': '.sidebar li:nth-child(3)',
+            'notifications': '.sidebar li:nth-child(4)'
+        };
+        const selector = navMap[sectionId];
+        if (selector) {
+            const navItem = document.querySelector(selector);
+            if (navItem) navItem.classList.add('active-nav');
+        }
     }
 
     // Load data for specific sections
-    if (sectionId === 'dashboard') loadDashboard();
-    if (sectionId === 'members') loadMembers();
-    if (sectionId === 'payments') loadPaymentsHistory();
+    if (sectionId === 'dashboard') { loadDashboard(); loadMembers(); }
+    else if (sectionId === 'members') loadMembers();
+    else if (sectionId === 'payments') loadPaymentsHistory();
+    else if (sectionId === 'daily-earnings') loadDailyEarnings();
 };
 
 // --- Dashboard ---
@@ -627,7 +647,6 @@ async function loadDashboard() {
         // but Promise.all is cleaner for "Dashboard Ready" state. 
         // However, these functions update the DOM directly, so we can just fire them.)
         const subModulesPromise = Promise.all([
-            loadMembers(), // Critical: updates global cache
             loadAnnualSummary(),
             loadPaymentMethodsChart(),
             loadRetentionStats(),
@@ -1147,107 +1166,113 @@ async function loadAnnualSummary() {
     const selectedYear = currentDate.getFullYear();
 
     // Update Header
-    document.querySelector('.annual-summary h3').textContent = `Balance Anual ${selectedYear}`;
+    const headerEl = document.querySelector('.annual-summary h3');
+    if (headerEl) headerEl.textContent = `Balance Anual ${selectedYear}`;
 
     // Show loading states
-    tbody.innerHTML = '<tr><td colspan="4" class="text-center"><div class="spinner"></div> Cargando datos...</td></tr>';
-    chartWrapper.innerHTML = '<div class="spinner"></div>';
+    if (tbody) tbody.innerHTML = '<tr><td colspan="4" class="text-center"><div class="spinner"></div> Cargando datos...</td></tr>';
+    if (chartWrapper) chartWrapper.innerHTML = '<div class="spinner"></div>';
 
-    // Fetch payments for the SELECTED YEAR
-    // We use a LIKE query for "YYYY-%"
-    const { data: allYearPayments, error } = await supabase
-        .from('payments')
-        .select('month_year, amount, member_id')
-        .like('month_year', `${selectedYear}-%`);
+    try {
+        // Fetch payments for the SELECTED YEAR
+        // We use a LIKE query for "YYYY-%"
+        const { data: allYearPayments, error } = await supabase
+            .from('payments')
+            .select('month_year, amount, member_id')
+            .like('month_year', `${selectedYear}-%`);
 
-    // Restore chart canvas
-    chartWrapper.innerHTML = '<canvas id="incomeChart"></canvas>';
+        // Restore chart canvas
+        chartWrapper.innerHTML = '<canvas id="incomeChart"></canvas>';
 
-    if (error) {
-        tbody.innerHTML = '<tr><td colspan="4">Error al cargar datos anuales</td></tr>';
-        return;
-    }
-
-    // Process data locally
-    const statsByMonth = {};
-    // Init months 1-12 for selectedYear
-    for (let i = 1; i <= 12; i++) {
-        const m = `${selectedYear}-${String(i).padStart(2, '0')}`;
-        statsByMonth[m] = { income: 0, distinctMembers: new Set() };
-    }
-
-    allYearPayments.forEach(p => {
-        if (statsByMonth[p.month_year]) {
-            statsByMonth[p.month_year].income += parseFloat(p.amount);
-            statsByMonth[p.month_year].distinctMembers.add(p.member_id);
+        if (error) {
+            tbody.innerHTML = '<tr><td colspan="4">Error al cargar datos anuales</td></tr>';
+            return;
         }
-    });
 
-    tbody.innerHTML = '';
+        // Process data locally
+        const statsByMonth = {};
+        // Init months 1-12 for selectedYear
+        for (let i = 1; i <= 12; i++) {
+            const m = `${selectedYear}-${String(i).padStart(2, '0')}`;
+            statsByMonth[m] = { income: 0, distinctMembers: new Set() };
+        }
 
-    const months = Object.keys(statsByMonth).sort();
-
-    months.forEach((m, index) => {
-        const income = statsByMonth[m].income;
-        const count = statsByMonth[m].distinctMembers.size;
-
-        let growthText = "-";
-        let growthClass = "";
-
-        if (index > 0) {
-            const prevM = months[index - 1];
-            const prevC = statsByMonth[prevM].distinctMembers.size;
-            if (prevC === 0) {
-                // If prev was 0 and now we have, that's infinite growth technically, or 100%
-                growthText = count > 0 ? "Nuevo" : "-";
-                growthClass = count > 0 ? "text-success" : "";
-            } else {
-                const diff = count - prevC;
-                const pct = ((diff / prevC) * 100).toFixed(0);
-                growthText = `${pct > 0 ? '+' : ''}${pct}%`;
-                growthClass = pct >= 0 ? "text-success" : "text-danger";
+        allYearPayments.forEach(p => {
+            if (statsByMonth[p.month_year]) {
+                statsByMonth[p.month_year].income += parseFloat(p.amount);
+                statsByMonth[p.month_year].distinctMembers.add(p.member_id);
             }
-        }
+        });
 
-        // Feature: Click to navigate
-        const tr = document.createElement('tr');
-        tr.className = 'annual-row';
-        tr.title = `Clic para ver ${getMonthName(m)}`;
-        tr.onclick = () => {
-            // Calculate difference in months from current view to clicked month
-            const [tYear, tMonth] = m.split('-').map(Number);
-            const targetDate = new Date(tYear, tMonth - 1, 1);
+        tbody.innerHTML = '';
 
-            // We can just set currentDate directly
-            currentDate = targetDate;
-            updateMonthDisplays();
-            initializeDatePicker();
+        const months = Object.keys(statsByMonth).sort();
 
-            // Refresh views (loadDashboard already calls loadMembers internally)
-            loadDashboard();
-        };
+        months.forEach((m, index) => {
+            const income = statsByMonth[m].income;
+            const count = statsByMonth[m].distinctMembers.size;
 
-        // Add hover effect class
-        tr.onmouseenter = () => tr.classList.add('row-hover');
-        tr.onmouseleave = () => tr.classList.remove('row-hover');
+            let growthText = "-";
+            let growthClass = "";
 
-        tr.innerHTML = `
+            if (index > 0) {
+                const prevM = months[index - 1];
+                const prevC = statsByMonth[prevM].distinctMembers.size;
+                if (prevC === 0) {
+                    // If prev was 0 and now we have, that's infinite growth technically, or 100%
+                    growthText = count > 0 ? "Nuevo" : "-";
+                    growthClass = count > 0 ? "text-success" : "";
+                } else {
+                    const diff = count - prevC;
+                    const pct = ((diff / prevC) * 100).toFixed(0);
+                    growthText = `${pct > 0 ? '+' : ''}${pct}%`;
+                    growthClass = pct >= 0 ? "text-success" : "text-danger";
+                }
+            }
+
+            // Feature: Click to navigate
+            const tr = document.createElement('tr');
+            tr.className = 'annual-row';
+            tr.title = `Clic para ver ${getMonthName(m)}`;
+            tr.onclick = () => {
+                // Calculate difference in months from current view to clicked month
+                const [tYear, tMonth] = m.split('-').map(Number);
+                const targetDate = new Date(tYear, tMonth - 1, 1);
+
+                // We can just set currentDate directly
+                currentDate = targetDate;
+                updateMonthDisplays();
+                initializeDatePicker();
+
+                // Refresh views (loadDashboard already calls loadMembers internally)
+                loadDashboard();
+            };
+
+            // Add hover effect class
+            tr.onmouseenter = () => tr.classList.add('row-hover');
+            tr.onmouseleave = () => tr.classList.remove('row-hover');
+
+            tr.innerHTML = `
             <td><strong>${getMonthName(m)}</strong></td>
             <td class="text-center">${count} <small style="opacity:0.7">alumnos</small></td>
             <td class="text-success"><strong>${formatCurrency(income)}</strong></td>
             <td class="text-center ${growthClass}"><strong>${growthText}</strong></td>
         `;
 
-        // Highlight current month row
-        if (m === getCurrentMonthISO()) {
-            tr.classList.add('current-month-row');
-        }
+            // Highlight current month row
+            if (m === getCurrentMonthISO()) {
+                tr.classList.add('current-month-row');
+            }
 
-        tbody.appendChild(tr);
-    });
+            tbody.appendChild(tr);
+        });
 
-    // --- RENDER CHART ---
-    renderIncomeChart(statsByMonth, months);
+        // --- RENDER CHART ---
+        renderIncomeChart(statsByMonth, months);
+    } catch (err) {
+        console.error('[ANNUAL SUMMARY] Error:', err);
+        if (tbody) tbody.innerHTML = '<tr><td colspan="4">Error al cargar datos anuales</td></tr>';
+    }
 }
 
 // Global Chart Instance to destroy before re-creating
@@ -1481,31 +1506,33 @@ function renderPagination() {
             scheduleDisplay = `<div class="member-schedule">${timeDisplay}${daysDisplay}</div>`;
         }
 
+        const isOwner = currentUserRole === 'OWNER';
+
         tr.innerHTML = `
             <td class="${nameClass}">${member.first_name}</td>
             <td class="${nameClass}">${member.last_name}</td>
             <td>${member.contact}${scheduleDisplay}</td>
-            <td>${paymentDateText}</td>
-            <td>${statusBadge}</td>
+            ${isOwner ? `<td>${paymentDateText}</td>` : ''}
+            ${isOwner ? `<td>${statusBadge}</td>` : ''}
             <td>
-                <button class="action-btn" title="Enviar WhatsApp" onclick="sendQuickWhatsApp('${member.id}', '${safeFirstName}', '${safeContact}', ${isOverdue})">
+                ${isOwner ? `<button class="action-btn" title="Enviar WhatsApp" onclick="sendQuickWhatsApp('${member.id}', '${safeFirstName}', '${safeContact}', ${isOverdue})">
                     <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#25D366" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"></path></svg>
-                </button>
+                </button>` : ''}
                 <button class="action-btn" title="Editar" onclick="openEditMemberModal('${member.id}')">
                     <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color:var(--text-secondary);"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
                 </button>
-                <button class="action-btn" title="Pagar" onclick="openPaymentModal('${member.id}', '${fullName}')">
+                ${isOwner ? `<button class="action-btn" title="Pagar" onclick="openPaymentModal('${member.id}', '${fullName}')">
                     <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color:#F59E0B;"><line x1="12" y1="1" x2="12" y2="23"></line><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg>
-                </button>
+                </button>` : ''}
                 <button class="action-btn" title="Observaciones Médicas" onclick="openNotesModal('${member.id}', '${fullName}', '${safeNotes}')">
                     <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color:#3B82F6;"><path d="M22 12h-4l-3 9L9 3l-3 9H2"></path></svg>
                 </button>
                 <button class="action-btn" title="Objetivos" onclick="openObjectivesModal('${member.id}', '${fullName}')">
                     <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color:#10B981;"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"></path></svg>
                 </button>
-                <button class="action-btn btn-delete" title="Eliminar Alumno" onclick="deleteMember('${member.id}')">
+                ${isOwner ? `<button class="action-btn btn-delete" title="Eliminar Alumno" onclick="deleteMember('${member.id}')">
                     <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color:#ef4444;"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
-                </button>
+                </button>` : ''}
             </td>
         `;
         tbody.appendChild(tr);
@@ -1541,8 +1568,9 @@ window.filterMembers = function (filter) {
         }
     });
 
-    // Apply filters
-    applyMemberFilters();
+    // Apply filters (preserve search term)
+    const searchTerm = document.getElementById('search-member-input').value.toLowerCase();
+    applyMemberFilters(searchTerm);
 }
 
 function applyMemberFilters(searchTerm = '') {
@@ -1676,9 +1704,9 @@ window.changeSortOrder = function (order) {
 // New: Change items per page
 window.changeItemsPerPage = function (value) {
     if (value === 'all') {
-        ITEMS_PER_PAGE = filteredMembersCache.length || 9999;
+        ITEMS_PER_PAGE = Math.max(filteredMembersCache.length, 1);
     } else {
-        ITEMS_PER_PAGE = parseInt(value);
+        ITEMS_PER_PAGE = parseInt(value) || 20;
     }
     currentPage = 1; // Reset to first page
     renderPagination();
@@ -1895,12 +1923,13 @@ window.openPaymentModal = (id, name) => {
     // Reset processing guard when opening modal
     isProcessingPayment = false;
 
-    document.getElementById('payment-member-id').value = id;
-    document.getElementById('payment-member-name').textContent = name;
-
-    // Reset form fields completely before showing
+    // Reset form fields completely before setting new values
     document.getElementById('payment-form').reset();
     document.getElementById('payment-amount').value = '';
+
+    // Set member data AFTER reset so it doesn't get cleared
+    document.getElementById('payment-member-id').value = id;
+    document.getElementById('payment-member-name').textContent = name;
 
     // Reset quick amount button visual states
     document.querySelectorAll('.quick-amount-btn').forEach(btn => {
@@ -1926,9 +1955,6 @@ window.openPaymentModal = (id, name) => {
 
     // Default to the *global view month* for convenience
     document.getElementById('payment-month').value = getCurrentMonthISO();
-
-    // Re-set member id after form.reset() cleared it
-    document.getElementById('payment-member-id').value = id;
 
     // Default Date -> Today
     const today = new Date();
@@ -2084,11 +2110,17 @@ async function handleAddPayment(e) {
 
         if (checkError) {
             ui.alert('Error al verificar pagos existentes: ' + checkError.message, 'error');
+            submitBtn.disabled = false;
+            submitBtn.textContent = originalText;
+            isProcessingPayment = false;
             return;
         }
 
         if (existingPayments && existingPayments.length > 0) {
             ui.alert('Este alumno ya tiene un pago registrado para este mes. Use el botón de editar (✏️) en el historial de pagos para modificarlo.', 'error');
+            submitBtn.disabled = false;
+            submitBtn.textContent = originalText;
+            isProcessingPayment = false;
             return;
         }
 
@@ -2255,7 +2287,6 @@ async function handleSaveObjectives(e) {
 }
 
 // --- Quick WhatsApp from Table ---
-// --- Quick WhatsApp from Table ---
 window.sendQuickWhatsApp = (id, paramsFirstName, paramsContact, isOverdue) => {
     // Construct a temporary member object to match service expectation
     const mockMember = { first_name: paramsFirstName };
@@ -2361,54 +2392,59 @@ async function loadPaymentsHistory() {
     const tbody = document.getElementById('payments-history-body');
     tbody.innerHTML = '<tr><td colspan="6"><div class="spinner"></div></td></tr>';
 
-    // Get the selected month's start and end dates
-    const selectedMonth = getCurrentMonthISO();
-    const [year, month] = selectedMonth.split('-').map(Number);
-    const startDate = new Date(year, month - 1, 1);
-    const endDate = new Date(year, month, 0, 23, 59, 59);
+    try {
+        // Get the selected month's start and end dates
+        const selectedMonth = getCurrentMonthISO();
+        const [year, month] = selectedMonth.split('-').map(Number);
+        const startDate = new Date(year, month - 1, 1);
+        const endDate = new Date(year, month, 0, 23, 59, 59);
 
-    const { data: payments, error } = await supabase
-        .from('payments')
-        .select(`
-            id,
-            created_at,
-            payment_date,
-            expiration_date,
-            month_year,
-            amount,
-            payment_method,
-            member_id,
-            members(first_name, last_name)
-        `)
-        .gte('payment_date', startDate.toISOString())
-        .lte('payment_date', endDate.toISOString())
-        .order('payment_date', { ascending: false });
+        const { data: payments, error } = await supabase
+            .from('payments')
+            .select(`
+                id,
+                created_at,
+                payment_date,
+                expiration_date,
+                month_year,
+                amount,
+                payment_method,
+                member_id,
+                members(first_name, last_name)
+            `)
+            .gte('payment_date', startDate.toISOString())
+            .lte('payment_date', endDate.toISOString())
+            .order('payment_date', { ascending: false });
 
-    if (error) {
-        tbody.innerHTML = `<tr><td colspan="6">Error: ${error.message}</td></tr>`;
-        return;
+        if (error) {
+            tbody.innerHTML = `<tr><td colspan="6">Error: ${error.message}</td></tr>`;
+            return;
+        }
+
+        // Cache payments
+        cachedPayments = payments;
+
+        // Reset duplicates view state
+        showingDuplicates = false;
+        const dupBtn = document.getElementById('show-duplicates-btn');
+        if (dupBtn) {
+            dupBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none"
+                stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="8" y="2" width="13" height="13" rx="2" ry="2"></rect>
+                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+            </svg> Ver Duplicados`;
+        }
+
+        // Clear search input on fresh load
+        const searchInput = document.getElementById('search-payment-input');
+        if (searchInput) searchInput.value = '';
+
+        // Render based on current view mode
+        renderPaymentsHistory(payments);
+    } catch (err) {
+        console.error('[PAYMENTS HISTORY] Error:', err);
+        tbody.innerHTML = '<tr><td colspan="6">Error al cargar el historial de pagos</td></tr>';
     }
-
-    // Cache payments
-    cachedPayments = payments;
-
-    // Reset duplicates view state
-    showingDuplicates = false;
-    const dupBtn = document.getElementById('show-duplicates-btn');
-    if (dupBtn) {
-        dupBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none"
-            stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <rect x="8" y="2" width="13" height="13" rx="2" ry="2"></rect>
-            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
-        </svg> Ver Duplicados`;
-    }
-
-    // Clear search input on fresh load
-    const searchInput = document.getElementById('search-payment-input');
-    if (searchInput) searchInput.value = '';
-
-    // Render based on current view mode
-    renderPaymentsHistory(payments);
 }
 
 function renderPaymentsHistory(payments) {
@@ -2581,12 +2617,13 @@ function renderGroupedView(payments, tbody) {
 
 function renderDetailedView(payments, tbody) {
     payments.forEach(p => {
+        if (!p) return; // Skip null/corrupt entries
         const paymentDate = formatDate(p.payment_date);
         const expirationDate = formatDate(p.expiration_date);
-        const memberName = p.members ? `${p.members.first_name} ${p.members.last_name}` : 'Alumno Eliminado/Desconocido';
+        const memberName = p.members ? `${p.members.first_name || ''} ${p.members.last_name || ''}`.trim() : 'Alumno Eliminado/Desconocido';
         const paymentMethod = p.payment_method || 'Efectivo';
-        const amount = formatCurrency(p.amount);
-        const monthName = getMonthName(p.month_year);
+        const amount = formatCurrency(p.amount || 0);
+        const monthName = p.month_year ? getMonthName(p.month_year) : '-';
 
         const tr = document.createElement('tr');
         tr.innerHTML = `
@@ -2617,6 +2654,185 @@ function renderDetailedView(payments, tbody) {
         `;
         tbody.appendChild(tr);
     });
+}
+
+// --- Daily Earnings Page ---
+async function loadDailyEarnings() {
+    const tbody = document.getElementById('daily-earnings-body');
+    const monthDisplay = document.getElementById('daily-earnings-month-display');
+    tbody.innerHTML = '<tr><td colspan="6"><div class="spinner"></div></td></tr>';
+
+    const selectedMonth = getCurrentMonthISO();
+    if (monthDisplay) monthDisplay.textContent = getMonthName(selectedMonth);
+
+    const [year, month] = selectedMonth.split('-').map(Number);
+    const startDate = new Date(year, month - 1, 1);
+    const endDate = new Date(year, month, 0, 23, 59, 59);
+
+    try {
+        const { data: payments, error } = await supabase
+            .from('payments')
+            .select('payment_date, amount, payment_method')
+            .gte('payment_date', startDate.toISOString())
+            .lte('payment_date', endDate.toISOString())
+            .order('payment_date', { ascending: true });
+
+        if (error) {
+            tbody.innerHTML = `<tr><td colspan="6">Error: ${error.message}</td></tr>`;
+            return;
+        }
+
+        // Group by day
+        const dailyMap = {};
+        payments.forEach(p => {
+            const day = p.payment_date ? p.payment_date.split('T')[0] : 'Sin fecha';
+            if (!dailyMap[day]) {
+                dailyMap[day] = { count: 0, cash: 0, transfer: 0, other: 0, total: 0 };
+            }
+            const amount = parseFloat(p.amount) || 0;
+            dailyMap[day].count++;
+            dailyMap[day].total += amount;
+
+            const method = (p.payment_method || 'Efectivo').toLowerCase();
+            if (method === 'efectivo') dailyMap[day].cash += amount;
+            else if (method === 'transferencia') dailyMap[day].transfer += amount;
+            else dailyMap[day].other += amount;
+        });
+
+        const sortedDays = Object.keys(dailyMap).sort();
+
+        if (sortedDays.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; padding: 40px; opacity: 0.6;">No hay pagos registrados en este mes</td></tr>';
+            document.getElementById('daily-earnings-total').textContent = formatCurrency(0);
+            document.getElementById('daily-earnings-days').textContent = '0';
+            document.getElementById('daily-earnings-avg').textContent = formatCurrency(0);
+            return;
+        }
+
+        let grandTotal = 0;
+        tbody.innerHTML = '';
+
+        sortedDays.forEach(day => {
+            const d = dailyMap[day];
+            grandTotal += d.total;
+
+            const dateObj = new Date(day + 'T12:00:00');
+            const dayName = dateObj.toLocaleDateString('es-AR', { weekday: 'short' });
+            const dateFormatted = dateObj.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' });
+
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+                <td><strong>${dateFormatted}</strong> <small style="opacity:0.6">${dayName}</small></td>
+                <td class="text-center">${d.count}</td>
+                <td>${formatCurrency(d.cash)}</td>
+                <td>${formatCurrency(d.transfer)}</td>
+                <td>${formatCurrency(d.other)}</td>
+                <td class="text-success"><strong>${formatCurrency(d.total)}</strong></td>
+            `;
+            tbody.appendChild(tr);
+        });
+
+        // Add total row
+        const totalTr = document.createElement('tr');
+        totalTr.style.borderTop = '2px solid var(--primary)';
+        totalTr.style.fontWeight = 'bold';
+        const totals = sortedDays.reduce((acc, day) => {
+            acc.count += dailyMap[day].count;
+            acc.cash += dailyMap[day].cash;
+            acc.transfer += dailyMap[day].transfer;
+            acc.other += dailyMap[day].other;
+            return acc;
+        }, { count: 0, cash: 0, transfer: 0, other: 0 });
+
+        totalTr.innerHTML = `
+            <td style="color: var(--primary);">TOTAL</td>
+            <td class="text-center">${totals.count}</td>
+            <td>${formatCurrency(totals.cash)}</td>
+            <td>${formatCurrency(totals.transfer)}</td>
+            <td>${formatCurrency(totals.other)}</td>
+            <td class="text-success"><strong>${formatCurrency(grandTotal)}</strong></td>
+        `;
+        tbody.appendChild(totalTr);
+
+        // Update summary cards
+        document.getElementById('daily-earnings-total').textContent = formatCurrency(grandTotal);
+        document.getElementById('daily-earnings-days').textContent = sortedDays.length;
+        document.getElementById('daily-earnings-avg').textContent = formatCurrency(grandTotal / sortedDays.length);
+
+    } catch (err) {
+        console.error('[DAILY EARNINGS] Error:', err);
+        tbody.innerHTML = '<tr><td colspan="6">Error al cargar ganancias diarias</td></tr>';
+    }
+}
+
+// Export Daily Earnings to PDF
+window.exportDailyEarningsToPDF = () => {
+    try {
+        if (!window.jspdf || !window.jspdf.jsPDF) {
+            ui.alert('La librería PDF no está disponible. Recarga la página e intenta de nuevo.', 'error');
+            return;
+        }
+        const { jsPDF } = window.jspdf;
+        const doc = new jsPDF();
+
+        const monthDisplay = document.getElementById('daily-earnings-month-display').textContent;
+        const total = document.getElementById('daily-earnings-total').textContent;
+        const days = document.getElementById('daily-earnings-days').textContent;
+        const avg = document.getElementById('daily-earnings-avg').textContent;
+
+        // Title
+        doc.setFontSize(18);
+        doc.setTextColor(255, 215, 0);
+        doc.text('AyD Funcional Gym', 14, 20);
+
+        doc.setFontSize(14);
+        doc.setTextColor(255, 255, 255);
+        doc.text(`Ganancias Diarias - ${monthDisplay}`, 14, 30);
+
+        // Summary
+        doc.setFontSize(11);
+        doc.setTextColor(180, 180, 180);
+        doc.text(`Total del Mes: ${total}`, 14, 42);
+        doc.text(`Días con Ingresos: ${days}`, 14, 50);
+        doc.text(`Promedio Diario: ${avg}`, 14, 58);
+        doc.text(`Fecha de exportación: ${new Date().toLocaleDateString('es-AR')}`, 14, 66);
+
+        // Table data from DOM
+        const table = document.getElementById('daily-earnings-body');
+        const rows = table.querySelectorAll('tr');
+        const tableData = [];
+
+        rows.forEach(row => {
+            const cells = row.querySelectorAll('td');
+            if (cells.length >= 6) {
+                tableData.push([
+                    cells[0].textContent.trim(),
+                    cells[1].textContent.trim(),
+                    cells[2].textContent.trim(),
+                    cells[3].textContent.trim(),
+                    cells[4].textContent.trim(),
+                    cells[5].textContent.trim()
+                ]);
+            }
+        });
+
+        doc.autoTable({
+            head: [['Fecha', 'Cant. Pagos', 'Efectivo', 'Transferencia', 'Otros', 'Total']],
+            body: tableData,
+            startY: 73,
+            theme: 'grid',
+            headStyles: { fillColor: [255, 215, 0], textColor: [0, 0, 0], fontStyle: 'bold' },
+            bodyStyles: { textColor: [200, 200, 200] },
+            alternateRowStyles: { fillColor: [30, 30, 30] },
+            styles: { fillColor: [20, 20, 20] }
+        });
+
+        doc.save(`ganancias_diarias_${getCurrentMonthISO()}.pdf`);
+        ui.alert('PDF de ganancias diarias exportado correctamente', 'success');
+    } catch (err) {
+        console.error('Export Error:', err);
+        ui.alert('Error al exportar PDF: ' + err.message, 'error');
+    }
 }
 
 // --- PDF Export Logic ---
@@ -2943,7 +3159,7 @@ function setupKeyboardShortcuts() {
 // Show keyboard shortcuts help
 function showKeyboardShortcutsHelp() {
     const shortcuts = `
-    < div style = "text-align: left; line-height: 1.8;" >
+    <div style="text-align: left; line-height: 1.8;">
             <h3 style="color: var(--primary); margin-bottom: 15px;">⌨️ Atajos de Teclado</h3>
             <p><strong>Alt + D</strong> - Ir a Dashboard</p>
             <p><strong>Alt + M</strong> - Ir a Alumnos</p>
@@ -2954,17 +3170,17 @@ function showKeyboardShortcutsHelp() {
             <p><strong>Alt + ←/→</strong> - Mes Anterior/Siguiente</p>
             <p><strong>Esc</strong> - Cerrar Modales</p>
             <p><strong>F1</strong> - Mostrar esta ayuda</p>
-        </div >
+        </div>
     `;
 
     const container = document.getElementById('alert-container');
     const alertBox = document.createElement('div');
     alertBox.id = 'alert-overlay';
     alertBox.innerHTML = `
-    < div class="alert-box info-type" >
+    <div class="alert-box info-type">
         ${shortcuts}
 <button onclick="this.closest('#alert-overlay').remove()" style="margin-top: 15px;">Cerrar</button>
-        </div >
+        </div>
     `;
     container.appendChild(alertBox);
 }
