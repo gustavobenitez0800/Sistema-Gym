@@ -1512,18 +1512,18 @@ function renderPagination() {
             <td class="${nameClass}">${member.first_name}</td>
             <td class="${nameClass}">${member.last_name}</td>
             <td>${member.contact}${scheduleDisplay}</td>
-            ${isOwner ? `<td>${paymentDateText}</td>` : ''}
-            ${isOwner ? `<td>${statusBadge}</td>` : ''}
+            <td>${paymentDateText}</td>
+            <td>${statusBadge}</td>
             <td>
-                ${isOwner ? `<button class="action-btn" title="Enviar WhatsApp" onclick="sendQuickWhatsApp('${member.id}', '${safeFirstName}', '${safeContact}', ${isOverdue})">
+                <button class="action-btn" title="Enviar WhatsApp" onclick="sendQuickWhatsApp('${member.id}', '${safeFirstName}', '${safeContact}', ${isOverdue})">
                     <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#25D366" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"></path></svg>
-                </button>` : ''}
+                </button>
                 <button class="action-btn" title="Editar" onclick="openEditMemberModal('${member.id}')">
                     <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color:var(--text-secondary);"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
                 </button>
-                ${isOwner ? `<button class="action-btn" title="Pagar" onclick="openPaymentModal('${member.id}', '${fullName}')">
+                <button class="action-btn" title="Pagar" onclick="openPaymentModal('${member.id}', '${fullName}')">
                     <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color:#F59E0B;"><line x1="12" y1="1" x2="12" y2="23"></line><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg>
-                </button>` : ''}
+                </button>
                 <button class="action-btn" title="Observaciones Médicas" onclick="openNotesModal('${member.id}', '${fullName}', '${safeNotes}')">
                     <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color:#3B82F6;"><path d="M22 12h-4l-3 9L9 3l-3 9H2"></path></svg>
                 </button>
@@ -2309,7 +2309,7 @@ window.openEditPaymentModal = (paymentId, paymentDate, expirationDate, memberNam
     document.getElementById('edit-payment-id').value = paymentId;
     document.getElementById('edit-payment-member-name').textContent = memberName;
     document.getElementById('edit-payment-month').textContent = monthName;
-    document.getElementById('edit-payment-amount').textContent = formatCurrency(amount);
+    document.getElementById('edit-payment-amount').value = amount;
 
     // Convert ISO dates to YYYY-MM-DD format for date inputs
     const paymentDateOnly = paymentDate.split('T')[0];
@@ -2332,10 +2332,15 @@ async function handleEditPayment(e) {
     const paymentId = document.getElementById('edit-payment-id').value;
     const payment_date_val = document.getElementById('edit-payment-date').value;
     const expiration_date_val = document.getElementById('edit-expiration-date').value;
+    const amount_val = document.getElementById('edit-payment-amount').value;
 
     // Validation
     if (!validators.isValidDate(payment_date_val)) {
         ui.alert('La fecha de pago no es válida', 'error');
+        return;
+    }
+    if (!validators.isPositiveNumber(amount_val)) {
+        ui.alert('El monto debe ser numérico y mayor a 0', 'error');
         return;
     }
     if (!validators.isValidDate(expiration_date_val)) {
@@ -2362,7 +2367,8 @@ async function handleEditPayment(e) {
             .from('payments')
             .update({
                 payment_date: new Date(payment_date_val + 'T12:00:00').toISOString(),
-                expiration_date: new Date(expiration_date_val + 'T12:00:00').toISOString()
+                expiration_date: new Date(expiration_date_val + 'T12:00:00').toISOString(),
+                amount: amount_val
             })
             .eq('id', paymentId);
 
@@ -2370,7 +2376,7 @@ async function handleEditPayment(e) {
             ui.alert('Error: ' + error.message, 'error');
         } else {
             closeEditPaymentModal();
-            ui.alert('Fechas actualizadas correctamente.', 'success');
+            ui.alert('Pago actualizado correctamente.', 'success');
             await loadPaymentsHistory();
             await loadMembers();
             loadDashboard();
