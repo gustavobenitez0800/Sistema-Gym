@@ -1720,8 +1720,7 @@ window.changeItemsPerPage = function (value) {
 window.openAddMemberModal = () => {
     // Reset form and checkboxes when opening
     document.getElementById('add-member-form').reset();
-    document.getElementById('new-schedule-time').value = '';
-    document.querySelectorAll('#new-days-selector input[type="checkbox"]').forEach(cb => cb.checked = false);
+    document.querySelectorAll('#new-schedules-selector input[type="checkbox"]').forEach(cb => cb.checked = false);
     document.getElementById('add-member-modal').classList.remove('hidden');
 };
 
@@ -1770,12 +1769,35 @@ async function handleAddMember(e) {
     submitBtn.textContent = 'Guardando...';
 
     // Get schedule data
-    const schedule_time = document.getElementById('new-schedule-time').value || null;
-    const attendance_days = JSON.stringify(getSelectedDays('new-days-selector'));
+    const selectedSchedules = Array.from(document.querySelectorAll('#new-schedules-selector input[type="checkbox"]:checked')).map(cb => cb.value);
+
+    // Validate capacity
+    for (const scheduleId of selectedSchedules) {
+        const { count } = await supabase
+            .from('member_schedules')
+            .select('id', { count: 'exact', head: true })
+            .eq('schedule_id', scheduleId);
+
+        const { data: schedData } = await supabase.from('schedules').select('max_capacity, day_of_week, start_time, end_time').eq('id', scheduleId).single();
+        if (schedData && count !== null && count >= schedData.max_capacity) {
+            ui.alert(`El horario de ${schedData.day_of_week} ${schedData.start_time}-${schedData.end_time} está lleno (${count}/${schedData.max_capacity}).`, 'error');
+            submitBtn.disabled = false;
+            submitBtn.textContent = originalText;
+            return;
+        }
+    }
 
     const { data: newMemberData, error } = await supabase.from('members').insert([{
-        first_name, last_name, contact, schedule_time, attendance_days
+        first_name, last_name, contact, schedule_time: '', attendance_days: '[]'
     }]).select().single();
+
+    if (!error && newMemberData && selectedSchedules.length > 0) {
+        const scheduleInserts = selectedSchedules.map(scheduleId => ({
+            member_id: newMemberData.id,
+            schedule_id: scheduleId
+        }));
+        await supabase.from('member_schedules').insert(scheduleInserts);
+    }
 
     // Re-enable button
     submitBtn.disabled = false;
@@ -1814,25 +1836,19 @@ window.openEditMemberModal = async (id) => {
     document.getElementById('edit-name').value = member.first_name;
     document.getElementById('edit-lastname').value = member.last_name;
     document.getElementById('edit-contact').value = member.contact;
-    document.getElementById('edit-schedule-time').value = member.schedule_time || '';
-
-    // Safely parse attendance days
-    let days = [];
-    try {
-        if (member.attendance_days) {
-            days = JSON.parse(member.attendance_days);
-        }
-    } catch (e) {
-        console.error('Error parsing attendance days', e);
-    }
 
     // Reset all checkboxes first
-    document.querySelectorAll('#edit-days-selector input[type="checkbox"]').forEach(cb => cb.checked = false);
+    document.querySelectorAll('#edit-schedules-selector input[type="checkbox"]').forEach(cb => cb.checked = false);
 
-    // Check correct ones
-    if (Array.isArray(days)) {
-        days.forEach(day => {
-            const cb = document.querySelector(`#edit-days-selector input[value="${day}"]`);
+    // Fetch existing member_schedules
+    const { data: memberSchedules } = await supabase
+        .from('member_schedules')
+        .select('schedule_id')
+        .eq('member_id', id);
+
+    if (memberSchedules) {
+        memberSchedules.forEach(ms => {
+            const cb = document.querySelector(`#edit-schedules-selector input[value="${ms.schedule_id}"]`);
             if (cb) cb.checked = true;
         });
     }
@@ -1871,14 +1887,50 @@ async function handleEditMember(e) {
     submitBtn.disabled = true;
     submitBtn.textContent = 'Actualizando...';
 
-    // Get schedule data
-    const schedule_time = document.getElementById('edit-schedule-time').value || null;
-    const attendance_days = JSON.stringify(getSelectedDays('edit-days-selector'));
+    // Get selected schedules
+    const selectedSchedules = Array.from(document.querySelectorAll('#edit-schedules-selector input[type="checkbox"]:checked')).map(cb => cb.value);
+
+    // Fetch current schedules to see what's newly added
+    const { data: currentSchedules } = await supabase.from('member_schedules').select('schedule_id').eq('member_id', id);
+    const existingIds = currentSchedules ? currentSchedules.map(ms => ms.schedule_id) : [];
+
+    // Validate capacity for NEW schedules
+    for (const scheduleId of selectedSchedules) {
+        if (!existingIds.includes(scheduleId)) {
+            const { count } = await supabase
+                .from('member_schedules')
+                .select('id', { count: 'exact', head: true })
+                .eq('schedule_id', scheduleId);
+
+            const { data: schedData } = await supabase.from('schedules').select('max_capacity, day_of_week, start_time, end_time').eq('id', scheduleId).single();
+            if (schedData && count !== null && count >= schedData.max_capacity) {
+                ui.alert(`El horario de ${schedData.day_of_week} ${schedData.start_time}-${schedData.end_time} está lleno (${count}/${schedData.max_capacity}).`, 'error');
+                submitBtn.disabled = false;
+                submitBtn.textContent = originalText;
+                return;
+            }
+        }
+    }
 
     const { error } = await supabase
         .from('members')
-        .update({ first_name, last_name, contact, schedule_time, attendance_days })
+        .update({ first_name, last_name, contact })
         .eq('id', id);
+
+    if (!error) {
+        // Delete removed schedules
+        const toDelete = existingIds.filter(id => !selectedSchedules.includes(id));
+        if (toDelete.length > 0) {
+            await supabase.from('member_schedules').delete().eq('member_id', id).in('schedule_id', toDelete);
+        }
+        // Insert new schedules
+        const toInsert = selectedSchedules.filter(id => !existingIds.includes(id)).map(scheduleId => ({
+            member_id: id, schedule_id: scheduleId
+        }));
+        if (toInsert.length > 0) {
+            await supabase.from('member_schedules').insert(toInsert);
+        }
+    }
 
     // Re-enable button
     submitBtn.disabled = false;
@@ -3589,3 +3641,226 @@ document.querySelectorAll('.modal-content').forEach(content => {
 });
 
 log('[APP] Sistema de Gimnasio cargado correctamente.');
+
+// ==========================================
+// SCHEDULES MODULE
+// ==========================================
+
+document.addEventListener('DOMContentLoaded', () => {
+    const addScheduleForm = document.getElementById('add-schedule-form');
+    if (addScheduleForm) addScheduleForm.addEventListener('submit', handleAddSchedule);
+
+    const editScheduleForm = document.getElementById('edit-schedule-form');
+    if (editScheduleForm) editScheduleForm.addEventListener('submit', handleEditSchedule);
+
+    // Initial load
+    if (typeof supabase !== 'undefined' && supabase) {
+        loadSchedules();
+    }
+});
+
+let currentSchedulesList = [];
+
+async function loadSchedules() {
+    try {
+        const { data: schedules, error: schedError } = await supabase.from('schedules').select('*');
+
+        if (schedError) { console.error('Error loading schedules:', schedError); return; }
+        if (!schedules) return;
+
+        // Fetch counts manually
+        const { data: memberSchedules, error: relError } = await supabase.from('member_schedules').select('schedule_id');
+
+        const counts = {};
+        if (memberSchedules) {
+            memberSchedules.forEach(ms => {
+                counts[ms.schedule_id] = (counts[ms.schedule_id] || 0) + 1;
+            });
+        }
+
+        currentSchedulesList = schedules.map(s => ({
+            ...s,
+            current_enrolled: counts[s.id] || 0
+        }));
+
+        renderSchedulesTable();
+        renderSchedulesSelectors();
+    } catch (e) {
+        console.error('loadSchedules error:', e);
+    }
+}
+
+function renderSchedulesTable() {
+    const tbody = document.getElementById('schedules-table-body');
+    if (!tbody) return;
+
+    tbody.innerHTML = '';
+    if (!currentSchedulesList || currentSchedulesList.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="5" class="text-center">No hay horarios registrados.</td></tr>';
+        return;
+    }
+
+    const dayOrder = { 'Lunes': 1, 'Martes': 2, 'Miércoles': 3, 'Jueves': 4, 'Viernes': 5, 'Sábado': 6, 'Domingo': 7 };
+
+    currentSchedulesList.sort((a, b) => {
+        if (dayOrder[a.day_of_week] !== dayOrder[b.day_of_week]) {
+            return (dayOrder[a.day_of_week] || 99) - (dayOrder[b.day_of_week] || 99);
+        }
+        return a.start_time.localeCompare(b.start_time);
+    });
+
+    currentSchedulesList.forEach(s => {
+        const tr = document.createElement('tr');
+        const isFull = s.current_enrolled >= s.max_capacity;
+        const statusBadge = isFull
+            ? '<span class="status-badge" style="background:#ef4444;color:white;padding:2px 8px;border-radius:10px;font-size:0.8rem;">Lleno</span>'
+            : '<span class="status-badge" style="background:#10b981;color:white;padding:2px 8px;border-radius:10px;font-size:0.8rem;">Disponible</span>';
+
+        tr.innerHTML = `
+            <td><strong>${s.day_of_week}</strong></td>
+            <td>${s.start_time} - ${s.end_time}</td>
+            <td>
+                <span class="${isFull ? 'text-danger' : ''}" style="font-weight:bold;">${s.current_enrolled}</span> / ${s.max_capacity}
+            </td>
+            <td>${statusBadge}</td>
+            <td>
+                <button class="btn-icon" onclick="openEditScheduleModal('${s.id}')" title="Editar"><i class="fas fa-edit"></i></button>
+                <button class="btn-icon text-danger" onclick="deleteSchedule('${s.id}')" title="Eliminar"><i class="fas fa-trash"></i></button>
+            </td>
+        `;
+        tbody.appendChild(tr);
+    });
+}
+
+function renderSchedulesSelectors() {
+    const selectors = ['new-schedules-selector', 'edit-schedules-selector'];
+
+    const dayOrder = { 'Lunes': 1, 'Martes': 2, 'Miércoles': 3, 'Jueves': 4, 'Viernes': 5, 'Sábado': 6, 'Domingo': 7 };
+
+    let html = '';
+    if (currentSchedulesList.length === 0) {
+        html = '<p class="text-muted">No hay horarios. Crea uno primero.</p>';
+    } else {
+        const sorted = [...currentSchedulesList];
+        sorted.sort((a, b) => {
+            if (dayOrder[a.day_of_week] !== dayOrder[b.day_of_week]) {
+                return (dayOrder[a.day_of_week] || 99) - (dayOrder[b.day_of_week] || 99);
+            }
+            return a.start_time.localeCompare(b.start_time);
+        });
+
+        sorted.forEach(s => {
+            const isFull = s.current_enrolled >= s.max_capacity;
+            const fullClass = isFull ? 'text-danger' : '';
+            html += `<label class="day-checkbox" style="display:flex; justify-content:space-between; margin-bottom:5px; padding: 5px; background: rgba(0,0,0,0.2); border-radius: 4px; cursor: pointer;">
+                <span style="display:flex; align-items:center; gap:8px;"><input type="checkbox" value="${s.id}"> 
+                ${s.day_of_week} ${s.start_time} - ${s.end_time}</span>
+                <span class="${fullClass}" style="font-size:0.85em; font-weight:bold;">${s.current_enrolled}/${s.max_capacity}</span>
+            </label>`;
+        });
+    }
+
+    selectors.forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.innerHTML = html;
+    });
+}
+
+window.openAddScheduleModal = () => {
+    document.getElementById('add-schedule-form').reset();
+    document.getElementById('add-schedule-modal').classList.remove('hidden');
+};
+
+window.closeAddScheduleModal = () => {
+    document.getElementById('add-schedule-modal').classList.add('hidden');
+};
+
+async function handleAddSchedule(e) {
+    e.preventDefault();
+    const day_of_week = document.getElementById('schedule-day').value;
+    const start_time = document.getElementById('schedule-start').value;
+    const end_time = document.getElementById('schedule-end').value;
+    const max_capacity = parseInt(document.getElementById('schedule-capacity').value) || 15;
+
+    const submitBtn = document.querySelector('#add-schedule-form button[type="submit"]');
+    const originalText = submitBtn.textContent;
+    submitBtn.disabled = true;
+    submitBtn.textContent = 'Guardando...';
+
+    const { error } = await supabase.from('schedules').insert([{
+        day_of_week, start_time, end_time, max_capacity
+    }]);
+
+    submitBtn.disabled = false;
+    submitBtn.textContent = originalText;
+
+    if (error) {
+        ui.alert('Error al agregar horario: ' + error.message, 'error');
+    } else {
+        closeAddScheduleModal();
+        ui.alert('Horario agregado correctamente.', 'success');
+        loadSchedules();
+    }
+}
+
+window.openEditScheduleModal = (id) => {
+    const s = currentSchedulesList.find(x => x.id === id);
+    if (!s) return;
+
+    document.getElementById('edit-schedule-id').value = s.id;
+    document.getElementById('edit-schedule-day').value = s.day_of_week;
+    document.getElementById('edit-schedule-start').value = s.start_time;
+    document.getElementById('edit-schedule-end').value = s.end_time;
+    document.getElementById('edit-schedule-capacity').value = s.max_capacity;
+
+    document.getElementById('edit-schedule-modal').classList.remove('hidden');
+};
+
+window.closeEditScheduleModal = () => {
+    document.getElementById('edit-schedule-modal').classList.add('hidden');
+};
+
+async function handleEditSchedule(e) {
+    e.preventDefault();
+    const id = document.getElementById('edit-schedule-id').value;
+    const day_of_week = document.getElementById('edit-schedule-day').value;
+    const start_time = document.getElementById('edit-schedule-start').value;
+    const end_time = document.getElementById('edit-schedule-end').value;
+    const max_capacity = parseInt(document.getElementById('edit-schedule-capacity').value) || 15;
+
+    const submitBtn = document.querySelector('#edit-schedule-form button[type="submit"]');
+    const originalText = submitBtn.textContent;
+    submitBtn.disabled = true;
+    submitBtn.textContent = 'Actualizando...';
+
+    const { error } = await supabase.from('schedules').update({
+        day_of_week, start_time, end_time, max_capacity
+    }).eq('id', id);
+
+    submitBtn.disabled = false;
+    submitBtn.textContent = originalText;
+
+    if (error) {
+        ui.alert('Error al actualizar horario: ' + error.message, 'error');
+    } else {
+        closeEditScheduleModal();
+        ui.alert('Horario actualizado correctamente.', 'success');
+        loadSchedules();
+        loadMembers();
+    }
+}
+
+window.deleteSchedule = async (id) => {
+    const confirmed = await ui.confirm('¿Estás seguro de que quieres eliminar este horario? Se desvinculará de todos los alumnos.');
+    if (!confirmed) return;
+
+    const { error } = await supabase.from('schedules').delete().eq('id', id);
+
+    if (error) {
+        ui.alert('Error al eliminar: ' + error.message, 'error');
+    } else {
+        ui.alert('Horario eliminado correctamente.', 'success');
+        loadSchedules();
+        loadMembers();
+    }
+};

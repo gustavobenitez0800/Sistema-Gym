@@ -134,3 +134,37 @@ CREATE INDEX IF NOT EXISTS idx_attendance_member_id ON attendance(member_id);
 -- 6. Actualizaciones para WhatsApp Automation (Ejecutar si ya existe la DB)
 ALTER TABLE payments ADD COLUMN IF NOT EXISTS warning_sent BOOLEAN DEFAULT false;
 ALTER TABLE payments ADD COLUMN IF NOT EXISTS expiration_sent BOOLEAN DEFAULT false;
+
+-- -----------------------------------------------------------------------------
+-- TABLE: schedules
+-- Almacena los horarios disponibles y su capacidad.
+-- -----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS schedules (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
+    day_of_week TEXT NOT NULL, 
+    start_time TEXT NOT NULL,
+    end_time TEXT NOT NULL,
+    max_capacity INTEGER NOT NULL DEFAULT 15,
+    active BOOLEAN DEFAULT true
+);
+
+ALTER TABLE schedules ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Allow ALL for authenticated users on schedules"
+ON schedules FOR ALL TO authenticated USING (true) WITH CHECK (true);
+
+-- -----------------------------------------------------------------------------
+-- TABLE: member_schedules
+-- Relación entre alumnos y sus horarios asignados.
+-- -----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS member_schedules (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
+    member_id UUID NOT NULL REFERENCES members(id) ON DELETE CASCADE,
+    schedule_id UUID NOT NULL REFERENCES schedules(id) ON DELETE CASCADE,
+    UNIQUE(member_id, schedule_id)
+);
+
+ALTER TABLE member_schedules ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Allow ALL for authenticated users on member_schedules"
+ON member_schedules FOR ALL TO authenticated USING (true) WITH CHECK (true);
