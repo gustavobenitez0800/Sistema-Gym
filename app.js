@@ -2,7 +2,20 @@
 import { supabase } from './src/supabaseClient.js';
 import { whatsappService } from './src/whatsappService.js';
 import { log, validators, ui, formatCurrency, formatDate, transformDate, getMonthName, getPreviousMonth } from './src/utils.js';
-const { ipcRenderer } = window.require('electron');
+
+// Electron IPC - Safe fallback for web/browser environment
+let ipcRenderer;
+try {
+    if (window.require) {
+        const electron = window.require('electron');
+        ipcRenderer = electron.ipcRenderer;
+    } else {
+        throw new Error('Not in Electron');
+    }
+} catch (e) {
+    console.warn('[APP] Running in browser mode — Electron features disabled');
+    ipcRenderer = { send: () => {}, on: () => {}, invoke: async () => ({}) };
+}
 
 // Global update function for the button
 window.checkForUpdates = () => ipcRenderer.send('manual-check-for-updates');
