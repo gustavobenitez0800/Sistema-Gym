@@ -1846,8 +1846,467 @@
     }
 
     /* ============================================
-   MOBILE RESPONSIVE DESIGN
-   ============================================ */
+       SCHEDULE CARDS - Modern Grouped View
+       ============================================ */
+
+    /* Day Filter Bar */
+    .schedule-day-filters {
+        display: flex;
+        gap: 6px;
+        flex-wrap: wrap;
+        margin-bottom: 20px;
+        padding: 8px;
+        background: rgba(255, 255, 255, 0.03);
+        border-radius: 12px;
+        border: 1px solid #222;
+    }
+
+    .schedule-day-btn {
+        padding: 8px 16px;
+        border: 1px solid #333;
+        background: transparent;
+        color: #888;
+        border-radius: 8px;
+        cursor: pointer;
+        font-size: 0.85rem;
+        font-weight: 600;
+        transition: all 0.2s ease;
+    }
+
+    .schedule-day-btn:hover {
+        border-color: var(--primary);
+        color: var(--primary);
+        background: rgba(255, 214, 0, 0.05);
+    }
+
+    .schedule-day-btn.active {
+        background: var(--primary);
+        color: #000;
+        border-color: var(--primary);
+    }
+
+    /* Quick Stats Row */
+    .schedule-stats-row {
+        display: flex;
+        gap: 12px;
+        flex-wrap: wrap;
+        margin-bottom: 20px;
+    }
+
+    .schedule-stat-chip {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 16px;
+        background: rgba(255, 255, 255, 0.04);
+        border: 1px solid #222;
+        border-radius: 20px;
+        font-size: 0.85rem;
+        color: #aaa;
+    }
+
+    .schedule-stat-chip i {
+        color: var(--primary);
+        font-size: 0.8rem;
+    }
+
+    .schedule-stat-chip.warning i {
+        color: #f59e0b;
+    }
+
+    /* Cards Container */
+    .schedules-cards-container {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+    }
+
+    /* Day Group Header */
+    .schedule-day-header {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        margin: 16px 0 8px 0;
+    }
+
+    .schedule-day-header:first-child {
+        margin-top: 0;
+    }
+
+    .schedule-day-label {
+        font-weight: 700;
+        font-size: 0.9rem;
+        color: var(--primary);
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        white-space: nowrap;
+    }
+
+    .schedule-day-line {
+        flex: 1;
+        height: 1px;
+        background: linear-gradient(to right, rgba(255, 214, 0, 0.3), transparent);
+    }
+
+    /* Schedule Card */
+    .schedule-card {
+        background: var(--card-bg);
+        border: 1px solid #222;
+        border-radius: 12px;
+        overflow: hidden;
+        transition: all 0.25s ease;
+    }
+
+    .schedule-card:hover {
+        border-color: #444;
+        box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+    }
+
+    .schedule-card.schedule-card-full {
+        border-color: rgba(239, 68, 68, 0.3);
+    }
+
+    .schedule-card.schedule-card-full:hover {
+        border-color: rgba(239, 68, 68, 0.5);
+    }
+
+    /* Card Header */
+    .schedule-card-header {
+        display: flex;
+        align-items: center;
+        gap: 16px;
+        padding: 16px 20px;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+    }
+
+    .schedule-card-time {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        min-width: 200px;
+    }
+
+    .schedule-time-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        color: #fff;
+        font-weight: 600;
+        font-size: 0.95rem;
+    }
+
+    .schedule-time-badge svg {
+        color: var(--primary);
+    }
+
+    .schedule-card-day-tag {
+        display: none; /* Hidden since we group by day, shown on search */
+        padding: 2px 8px;
+        background: rgba(255, 214, 0, 0.1);
+        border-radius: 4px;
+        font-size: 0.75rem;
+        color: var(--primary);
+        font-weight: 600;
+    }
+
+    /* Card Meta - Capacity + Progress */
+    .schedule-card-meta {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+    }
+
+    .schedule-capacity-info {
+        display: flex;
+        align-items: center;
+        gap: 3px;
+        font-size: 0.9rem;
+    }
+
+    .schedule-enrolled-count {
+        font-weight: 700;
+        color: #fff;
+        font-size: 1rem;
+    }
+
+    .schedule-capacity-sep {
+        color: #555;
+    }
+
+    .schedule-max-capacity {
+        color: #666;
+        font-weight: 500;
+    }
+
+    .schedule-full-badge {
+        margin-left: 8px;
+        padding: 1px 8px;
+        background: #ef4444;
+        color: white;
+        border-radius: 4px;
+        font-size: 0.65rem;
+        font-weight: 700;
+        letter-spacing: 0.5px;
+    }
+
+    /* Progress Bar */
+    .schedule-progress-bar {
+        width: 100%;
+        max-width: 160px;
+        height: 4px;
+        background: rgba(255, 255, 255, 0.08);
+        border-radius: 4px;
+        overflow: hidden;
+    }
+
+    .schedule-progress-fill {
+        height: 100%;
+        border-radius: 4px;
+        transition: width 0.5s ease, background 0.3s ease;
+    }
+
+    /* Card Actions */
+    .schedule-card-actions {
+        display: flex;
+        gap: 4px;
+    }
+
+    .btn-icon-sm {
+        width: 32px;
+        height: 32px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border: none;
+        background: transparent;
+        color: #888;
+        cursor: pointer;
+        border-radius: 6px;
+        transition: all 0.2s;
+        font-size: 0.85rem;
+    }
+
+    .btn-icon-sm:hover {
+        background: rgba(255, 255, 255, 0.08);
+        color: var(--primary);
+    }
+
+    .btn-icon-sm.text-danger:hover {
+        color: #ef4444;
+        background: rgba(239, 68, 68, 0.1);
+    }
+
+    /* Member Avatar */
+    .schedule-member-avatar {
+        width: 32px;
+        height: 32px;
+        border-radius: 50%;
+        background: linear-gradient(135deg, rgba(255, 214, 0, 0.2), rgba(255, 214, 0, 0.05));
+        border: 1px solid rgba(255, 214, 0, 0.25);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 0.7rem;
+        font-weight: 700;
+        color: var(--primary);
+        text-transform: uppercase;
+        flex-shrink: 0;
+        letter-spacing: -0.5px;
+    }
+
+    /* Status Text */
+    .status-text-active {
+        color: #10b981;
+        font-weight: 600;
+    }
+
+    .status-text-overdue {
+        color: #ef4444;
+        font-weight: 600;
+    }
+
+    /* No Members Empty State */
+    .schedule-no-members {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        padding: 14px;
+        color: #555;
+        font-size: 0.85rem;
+        font-style: italic;
+    }
+
+    .schedule-no-members svg {
+        opacity: 0.5;
+    }
+
+    /* Members List */
+    .schedule-members-list {
+        border-top: 1px solid #1a1a1a;
+        padding: 4px 0;
+        background: rgba(0, 0, 0, 0.2);
+    }
+
+    .schedule-member-item {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 8px 18px;
+        transition: background 0.15s;
+        animation: fadeInItem 0.2s ease forwards;
+        opacity: 0;
+    }
+
+    @keyframes fadeInItem {
+        to {
+            opacity: 1;
+            transform: translateY(0);
+        }
+        from {
+            opacity: 0;
+            transform: translateY(-4px);
+        }
+    }
+
+    .schedule-member-item:hover {
+        background: rgba(255, 255, 255, 0.03);
+    }
+
+    .schedule-member-info {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+    }
+
+    .member-status-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        flex-shrink: 0;
+    }
+
+    .member-status-dot.active {
+        background: #10b981;
+        box-shadow: 0 0 6px rgba(16, 185, 129, 0.4);
+    }
+
+    .member-status-dot.overdue {
+        background: #ef4444;
+        box-shadow: 0 0 6px rgba(239, 68, 68, 0.4);
+    }
+
+    .schedule-member-name {
+        display: block;
+        color: #ddd;
+        font-weight: 500;
+        font-size: 0.88rem;
+    }
+
+    .schedule-member-contact {
+        display: block;
+        color: #666;
+        font-size: 0.78rem;
+    }
+
+    /* Member Action Buttons */
+    .schedule-member-actions {
+        display: flex;
+        gap: 2px;
+        opacity: 0;
+        transition: opacity 0.2s;
+    }
+
+    .schedule-member-item:hover .schedule-member-actions {
+        opacity: 1;
+    }
+
+    .action-btn-mini {
+        width: 28px;
+        height: 28px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border: none;
+        background: transparent;
+        cursor: pointer;
+        border-radius: 4px;
+        transition: all 0.15s;
+        color: #888;
+    }
+
+    .action-btn-mini:hover {
+        background: rgba(255, 255, 255, 0.08);
+    }
+
+    /* Empty State */
+    .schedule-empty-state {
+        text-align: center;
+        padding: 50px 20px;
+        color: #666;
+    }
+
+    .schedule-empty-state svg {
+        color: #444;
+        margin-bottom: 15px;
+    }
+
+    .schedule-empty-state p {
+        font-size: 1rem;
+        margin: 0;
+    }
+
+    /* ============================================
+       SCHEDULE CARDS - Mobile Responsive
+       ============================================ */
+    @media (max-width: 768px) {
+        .schedule-card-header {
+            flex-wrap: wrap;
+            gap: 10px;
+            padding: 12px;
+        }
+
+        .schedule-card-time {
+            min-width: unset;
+            width: 100%;
+        }
+
+        .schedule-card-day-tag {
+            display: inline-block;
+        }
+
+        .schedule-progress-bar {
+            max-width: 100%;
+        }
+
+        .schedule-card-meta {
+            width: 100%;
+        }
+
+        .schedule-card-actions {
+            margin-left: auto;
+        }
+
+        .schedule-member-actions {
+            opacity: 1;
+        }
+
+        .schedule-day-filters {
+            gap: 4px;
+        }
+
+        .schedule-day-btn {
+            padding: 6px 12px;
+            font-size: 0.8rem;
+        }
+
+        .schedule-member-item {
+            padding: 10px 12px;
+        }
+    }
+
+
 
     /* Mobile Menu Toggle Button */
     .mobile-menu-toggle {

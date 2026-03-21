@@ -8,7 +8,7 @@
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <link rel="icon" type="image/x-icon" href="./img/Logo.png">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
-    <link rel="stylesheet" href="style.css?v=8.0">
+    <link rel="stylesheet" href="style.css?v=9.0">
     <style>
         .employee-mode .owner-only {
             display: none !important;
@@ -626,27 +626,45 @@
                         <h2>Gestión de Horarios</h2>
                     </div>
                     <div class="header-actions">
+                        <input type="text" id="search-schedule-member" placeholder="Buscar alumno en horarios..." class="search-input" autocomplete="off">
                         <button class="btn-primary" onclick="openAddScheduleModal()">
                             <i class="fas fa-plus"></i> Nuevo Horario
                         </button>
                     </div>
                 </div>
 
-                <div class="table-container">
-                    <table>
-                        <thead>
-                            <tr>
-                                <th>Día</th>
-                                <th>Horario</th>
-                                <th>Inscritos / Capacidad</th>
-                                <th>Estado</th>
-                                <th>Acciones</th>
-                            </tr>
-                        </thead>
-                        <tbody id="schedules-table-body">
-                            <!-- Rows loaded via JS -->
-                        </tbody>
-                    </table>
+                <!-- Day Filter Bar -->
+                <div class="schedule-day-filters" id="schedule-day-filters">
+                    <button class="schedule-day-btn active" data-day="all" onclick="filterSchedulesByDay('all')">
+                        <i class="fas fa-th"></i> Todos
+                    </button>
+                    <button class="schedule-day-btn" data-day="Lunes" onclick="filterSchedulesByDay('Lunes')">Lun</button>
+                    <button class="schedule-day-btn" data-day="Martes" onclick="filterSchedulesByDay('Martes')">Mar</button>
+                    <button class="schedule-day-btn" data-day="Miércoles" onclick="filterSchedulesByDay('Miércoles')">Mié</button>
+                    <button class="schedule-day-btn" data-day="Jueves" onclick="filterSchedulesByDay('Jueves')">Jue</button>
+                    <button class="schedule-day-btn" data-day="Viernes" onclick="filterSchedulesByDay('Viernes')">Vie</button>
+                    <button class="schedule-day-btn" data-day="Sábado" onclick="filterSchedulesByDay('Sábado')">Sáb</button>
+                </div>
+
+                <!-- Quick Stats -->
+                <div class="schedule-stats-row" id="schedule-stats-row">
+                    <div class="schedule-stat-chip">
+                        <i class="fas fa-calendar-alt"></i>
+                        <span id="sched-stat-total">0 horarios</span>
+                    </div>
+                    <div class="schedule-stat-chip">
+                        <i class="fas fa-users"></i>
+                        <span id="sched-stat-enrolled">0 inscriptos</span>
+                    </div>
+                    <div class="schedule-stat-chip warning">
+                        <i class="fas fa-exclamation-circle"></i>
+                        <span id="sched-stat-full">0 llenos</span>
+                    </div>
+                </div>
+
+                <!-- Schedule Cards Container -->
+                <div id="schedules-cards-container" class="schedules-cards-container">
+                    <div class="spinner"></div>
                 </div>
             </section>
         </main>
@@ -1047,7 +1065,7 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.29/jspdf.plugin.autotable.min.js"></script>
 
-    <script type="module" src="app.js?v=14.0"></script>
+    <script type="module" src="app.js?v=15.0"></script>
 </body>
 
 </html>

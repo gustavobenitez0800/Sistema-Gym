@@ -595,6 +595,7 @@ window.showSection = (sectionId, event) => {
     else if (sectionId === 'members') loadMembers();
     else if (sectionId === 'payments') loadPaymentsHistory();
     else if (sectionId === 'daily-earnings') loadDailyEarnings();
+    else if (sectionId === 'schedules') loadSchedules();
 };
 
 // --- Dashboard ---
@@ -3653,6 +3654,18 @@ document.addEventListener('DOMContentLoaded', () => {
     const editScheduleForm = document.getElementById('edit-schedule-form');
     if (editScheduleForm) editScheduleForm.addEventListener('submit', handleEditSchedule);
 
+    // Search in schedules
+    const searchInput = document.getElementById('search-schedule-member');
+    if (searchInput) {
+        let searchTimeout;
+        searchInput.addEventListener('input', (e) => {
+            clearTimeout(searchTimeout);
+            searchTimeout = setTimeout(() => {
+                renderScheduleCards();
+            }, 250);
+        });
+    }
+
     // Initial load
     if (typeof supabase !== 'undefined' && supabase) {
         loadSchedules();
@@ -3660,76 +3673,260 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 let currentSchedulesList = [];
+let scheduleMembersMap = {}; // schedule_id -> [member objects]
+let currentScheduleDayFilter = 'all';
 
 async function loadSchedules() {
+    const container = document.getElementById('schedules-cards-container');
+    if (container) container.innerHTML = '<div class="spinner"></div>';
+
     try {
+        // 1. Fetch all schedules
         const { data: schedules, error: schedError } = await supabase.from('schedules').select('*');
 
-        if (schedError) { console.error('Error loading schedules:', schedError); return; }
-        if (!schedules) return;
+        if (schedError) { console.error('[SCHEDULES] Error loading schedules:', schedError); return; }
+        if (!schedules) { console.warn('[SCHEDULES] No schedules found'); return; }
 
-        // Fetch counts manually
-        const { data: memberSchedules, error: relError } = await supabase.from('member_schedules').select('schedule_id');
+        // 2. Fetch all member_schedule relationships
+        const { data: memberScheduleRels, error: relError } = await supabase
+            .from('member_schedules')
+            .select('schedule_id, member_id');
 
+        if (relError) { console.error('[SCHEDULES] Error loading member_schedules:', relError); }
+
+        // 3. Fetch all active members
+        const { data: activeMembers, error: membersError } = await supabase
+            .from('members')
+            .select('id, first_name, last_name, contact, active')
+            .eq('active', true);
+
+        if (membersError) { console.error('[SCHEDULES] Error loading members:', membersError); }
+
+        // 4. Build a lookup map: member_id -> member object
+        const membersById = {};
+        if (activeMembers) {
+            activeMembers.forEach(m => { membersById[m.id] = m; });
+        }
+
+        // 5. Build schedule -> members mapping and counts
         const counts = {};
-        if (memberSchedules) {
-            memberSchedules.forEach(ms => {
-                counts[ms.schedule_id] = (counts[ms.schedule_id] || 0) + 1;
+        scheduleMembersMap = {};
+
+        if (memberScheduleRels) {
+            memberScheduleRels.forEach(ms => {
+                const member = membersById[ms.member_id];
+                if (member) { // Only active members are in membersById
+                    counts[ms.schedule_id] = (counts[ms.schedule_id] || 0) + 1;
+                    if (!scheduleMembersMap[ms.schedule_id]) {
+                        scheduleMembersMap[ms.schedule_id] = [];
+                    }
+                    scheduleMembersMap[ms.schedule_id].push(member);
+                }
             });
         }
+
+        // Sort members alphabetically within each schedule
+        Object.keys(scheduleMembersMap).forEach(schedId => {
+            scheduleMembersMap[schedId].sort((a, b) =>
+                a.last_name.localeCompare(b.last_name) || a.first_name.localeCompare(b.first_name)
+            );
+        });
 
         currentSchedulesList = schedules.map(s => ({
             ...s,
             current_enrolled: counts[s.id] || 0
         }));
 
-        renderSchedulesTable();
+        console.log(`[SCHEDULES] Loaded ${schedules.length} schedules, ${Object.keys(scheduleMembersMap).length} with members`);
+
+        renderScheduleCards();
         renderSchedulesSelectors();
+        updateScheduleStats();
     } catch (e) {
-        console.error('loadSchedules error:', e);
+        console.error('[SCHEDULES] loadSchedules error:', e);
+        if (container) container.innerHTML = '<p style="text-align:center; color: #ef4444; padding: 20px;">Error al cargar horarios. Revisa la consola.</p>';
     }
 }
 
-function renderSchedulesTable() {
-    const tbody = document.getElementById('schedules-table-body');
-    if (!tbody) return;
+function updateScheduleStats() {
+    const totalEl = document.getElementById('sched-stat-total');
+    const enrolledEl = document.getElementById('sched-stat-enrolled');
+    const fullEl = document.getElementById('sched-stat-full');
 
-    tbody.innerHTML = '';
-    if (!currentSchedulesList || currentSchedulesList.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="5" class="text-center">No hay horarios registrados.</td></tr>';
-        return;
-    }
+    if (totalEl) totalEl.textContent = `${currentSchedulesList.length} horario${currentSchedulesList.length !== 1 ? 's' : ''}`;
+
+    const totalEnrolled = currentSchedulesList.reduce((sum, s) => sum + s.current_enrolled, 0);
+    if (enrolledEl) enrolledEl.textContent = `${totalEnrolled} inscripto${totalEnrolled !== 1 ? 's' : ''}`;
+
+    const fullCount = currentSchedulesList.filter(s => s.current_enrolled >= s.max_capacity).length;
+    if (fullEl) fullEl.textContent = `${fullCount} lleno${fullCount !== 1 ? 's' : ''}`;
+}
+
+window.filterSchedulesByDay = (day) => {
+    currentScheduleDayFilter = day;
+    // Update active button
+    document.querySelectorAll('.schedule-day-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.day === day);
+    });
+    renderScheduleCards();
+};
+
+
+
+function renderScheduleCards() {
+    const container = document.getElementById('schedules-cards-container');
+    if (!container) return;
+
+    const searchTerm = (document.getElementById('search-schedule-member')?.value || '').toLowerCase();
 
     const dayOrder = { 'Lunes': 1, 'Martes': 2, 'Miércoles': 3, 'Jueves': 4, 'Viernes': 5, 'Sábado': 6, 'Domingo': 7 };
 
-    currentSchedulesList.sort((a, b) => {
+    // Filter by day
+    let filtered = currentSchedulesList;
+    if (currentScheduleDayFilter !== 'all') {
+        filtered = filtered.filter(s => s.day_of_week === currentScheduleDayFilter);
+    }
+
+    // Sort
+    filtered.sort((a, b) => {
         if (dayOrder[a.day_of_week] !== dayOrder[b.day_of_week]) {
             return (dayOrder[a.day_of_week] || 99) - (dayOrder[b.day_of_week] || 99);
         }
         return a.start_time.localeCompare(b.start_time);
     });
 
-    currentSchedulesList.forEach(s => {
-        const tr = document.createElement('tr');
-        const isFull = s.current_enrolled >= s.max_capacity;
-        const statusBadge = isFull
-            ? '<span class="status-badge" style="background:#ef4444;color:white;padding:2px 8px;border-radius:10px;font-size:0.8rem;">Lleno</span>'
-            : '<span class="status-badge" style="background:#10b981;color:white;padding:2px 8px;border-radius:10px;font-size:0.8rem;">Disponible</span>';
-
-        tr.innerHTML = `
-            <td><strong>${s.day_of_week}</strong></td>
-            <td>${s.start_time} - ${s.end_time}</td>
-            <td>
-                <span class="${isFull ? 'text-danger' : ''}" style="font-weight:bold;">${s.current_enrolled}</span> / ${s.max_capacity}
-            </td>
-            <td>${statusBadge}</td>
-            <td>
-                <button class="btn-icon" onclick="openEditScheduleModal('${s.id}')" title="Editar"><i class="fas fa-edit"></i></button>
-                <button class="btn-icon text-danger" onclick="deleteSchedule('${s.id}')" title="Eliminar"><i class="fas fa-trash"></i></button>
-            </td>
+    if (filtered.length === 0) {
+        container.innerHTML = `
+            <div class="schedule-empty-state">
+                <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                    <rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect>
+                    <line x1="16" y1="2" x2="16" y2="6"></line>
+                    <line x1="8" y1="2" x2="8" y2="6"></line>
+                    <line x1="3" y1="10" x2="21" y2="10"></line>
+                </svg>
+                <p>No hay horarios ${currentScheduleDayFilter !== 'all' ? 'para este día' : 'registrados'}.</p>
+                <button class="btn-primary" onclick="openAddScheduleModal()" style="margin-top:10px; padding: 10px 20px;">
+                    <i class="fas fa-plus"></i> Crear Horario
+                </button>
+            </div>
         `;
-        tbody.appendChild(tr);
+        return;
+    }
+
+    // Group by day for header display
+    let currentDay = '';
+    let html = '';
+
+    filtered.forEach(s => {
+        const members = scheduleMembersMap[s.id] || [];
+        const isFull = s.current_enrolled >= s.max_capacity;
+        const fillPercent = s.max_capacity > 0 ? Math.min((s.current_enrolled / s.max_capacity) * 100, 100) : 0;
+
+        // Filter members by search term
+        let displayMembers = members;
+        if (searchTerm) {
+            displayMembers = members.filter(m =>
+                m.first_name.toLowerCase().includes(searchTerm) ||
+                m.last_name.toLowerCase().includes(searchTerm) ||
+                (m.contact || '').toLowerCase().includes(searchTerm)
+            );
+            // If searching and no match in this schedule, skip it
+            if (displayMembers.length === 0) return;
+        }
+
+        // Day group header
+        if (s.day_of_week !== currentDay) {
+            currentDay = s.day_of_week;
+            html += `<div class="schedule-day-header">
+                <span class="schedule-day-label">${s.day_of_week}</span>
+                <span class="schedule-day-line"></span>
+            </div>`;
+        }
+
+        // Determine bar color
+        let barColor = '#10b981'; // green
+        if (fillPercent >= 90) barColor = '#ef4444'; // red
+        else if (fillPercent >= 70) barColor = '#f59e0b'; // yellow
+
+        // Members list HTML — always visible
+        let membersHtml = '';
+        if (displayMembers.length === 0) {
+            membersHtml = `<div class="schedule-members-list">
+                <div class="schedule-no-members">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><line x1="23" y1="11" x2="17" y2="11"></line></svg>
+                    <span>Sin alumnos inscriptos</span>
+                </div>
+            </div>`;
+        } else {
+            membersHtml = `<div class="schedule-members-list">
+                ${displayMembers.map((m, i) => {
+                    const isActive = activeMemberIds ? activeMemberIds.has(m.id) : true;
+                    const statusDot = isActive
+                        ? '<span class="member-status-dot active" title="Al día"></span>'
+                        : '<span class="member-status-dot overdue" title="Vencido"></span>';
+                    const fullName = `${m.first_name} ${m.last_name}`;
+                    const statusText = isActive ? 'Al día' : 'Vencido';
+                    const statusClass = isActive ? 'status-text-active' : 'status-text-overdue';
+
+                    return `<div class="schedule-member-item" style="animation-delay: ${i * 0.03}s">
+                        <div class="schedule-member-info">
+                            <div class="schedule-member-avatar">${m.first_name.charAt(0)}${m.last_name.charAt(0)}</div>
+                            <div>
+                                <span class="schedule-member-name">${m.last_name}, ${m.first_name}</span>
+                                <span class="schedule-member-contact">${m.contact || '-'} · <span class="${statusClass}">${statusText}</span></span>
+                            </div>
+                        </div>
+                        <div class="schedule-member-actions">
+                            <button class="action-btn-mini" title="WhatsApp" onclick="sendQuickWhatsApp('${m.id}', '${m.first_name.replace(/'/g, "\\'")}', '${(m.contact || '').replace(/'/g, "\\'")}', ${!isActive})">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#25D366" stroke-width="2"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"></path></svg>
+                            </button>
+                            <button class="action-btn-mini" title="Editar alumno" onclick="openEditMemberModal('${m.id}')">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
+                            </button>
+                            <button class="action-btn-mini" title="Registrar pago" onclick="openPaymentModal('${m.id}', '${fullName.replace(/'/g, "\\'")}')">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#F59E0B" stroke-width="2"><line x1="12" y1="1" x2="12" y2="23"></line><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg>
+                            </button>
+                        </div>
+                    </div>`;
+                }).join('')}
+            </div>`;
+        }
+
+        html += `
+        <div class="schedule-card ${isFull ? 'schedule-card-full' : ''}">
+            <div class="schedule-card-header">
+                <div class="schedule-card-time">
+                    <div class="schedule-time-badge">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
+                        <span>${s.start_time} - ${s.end_time}</span>
+                    </div>
+                </div>
+                <div class="schedule-card-meta">
+                    <div class="schedule-capacity-info">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color:#888;margin-right:4px;"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle></svg>
+                        <span class="schedule-enrolled-count ${isFull ? 'text-danger' : ''}">${s.current_enrolled}</span>
+                        <span class="schedule-capacity-sep">/</span>
+                        <span class="schedule-max-capacity">${s.max_capacity}</span>
+                        ${isFull ? '<span class="schedule-full-badge">LLENO</span>' : ''}
+                    </div>
+                    <div class="schedule-progress-bar">
+                        <div class="schedule-progress-fill" style="width: ${fillPercent}%; background: ${barColor};"></div>
+                    </div>
+                </div>
+                <div class="schedule-card-actions">
+                    <button class="btn-icon-sm" onclick="openEditScheduleModal('${s.id}')" title="Editar horario">
+                        <i class="fas fa-edit"></i>
+                    </button>
+                    <button class="btn-icon-sm text-danger" onclick="deleteSchedule('${s.id}')" title="Eliminar horario">
+                        <i class="fas fa-trash"></i>
+                    </button>
+                </div>
+            </div>
+            ${membersHtml}
+        </div>`;
     });
+
+    container.innerHTML = html || `<div class="schedule-empty-state"><p>No se encontraron alumnos con ese nombre.</p></div>`;
 }
 
 function renderSchedulesSelectors() {
@@ -3864,3 +4061,4 @@ window.deleteSchedule = async (id) => {
         loadMembers();
     }
 };
+
