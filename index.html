@@ -681,10 +681,8 @@
                 <input type="text" id="new-lastname" placeholder="Apellido" required>
                 <input type="text" id="new-contact" placeholder="Contacto (Tel/Email)" required>
 
-                <label>Seleccionar Horarios</label>
-                <div class="days-selector schedules-selector" id="new-schedules-selector" style="display:flex; flex-direction:column;">
-                    <p class="text-muted">Cargando horarios...</p>
-                </div>
+                <label>Días y Horarios</label>
+                <div class="day-schedule-picker" id="new-day-picker"></div>
 
                 <button type="submit" id="save-member-btn">Guardar</button>
             </form>
@@ -807,10 +805,8 @@
                 <label>Contacto</label>
                 <input type="text" id="edit-contact" placeholder="Contacto (Tel/Email)" required>
 
-                <label>Seleccionar Horarios</label>
-                <div class="days-selector schedules-selector" id="edit-schedules-selector" style="display:flex; flex-direction:column;">
-                    <p class="text-muted">Cargando horarios...</p>
-                </div>
+                <label>Días y Horarios</label>
+                <div class="day-schedule-picker" id="edit-day-picker"></div>
 
                 <button type="submit" id="update-member-btn">Actualizar</button>
             </form>

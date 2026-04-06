@@ -1505,19 +1505,24 @@ function renderPagination() {
 
         // Format schedule display
         let scheduleDisplay = '';
-        if (member.schedule_time || member.attendance_days) {
-            const timeDisplay = member.schedule_time ? `<span class="schedule-badge"><span class="time-icon"><svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg></span>${member.schedule_time}</span>` : '';
-
-            let daysDisplay = '';
-            if (member.attendance_days) {
-                try {
-                    const daysArray = JSON.parse(member.attendance_days);
-                    if (daysArray.length > 0) {
-                        daysDisplay = `<div class="days-badge">${daysArray.map(d => `<span class="day-tag active">${d}</span>`).join('')}</div>`;
-                    }
-                } catch (e) { }
-            }
-            scheduleDisplay = `<div class="member-schedule">${timeDisplay}${daysDisplay}</div>`;
+        if (member.attendance_days) {
+            const dayLetterMap = { 'Lunes': 'L', 'Martes': 'M', 'Miércoles': 'X', 'Jueves': 'J', 'Viernes': 'V', 'Sábado': 'S' };
+            try {
+                const parsed = JSON.parse(member.attendance_days);
+                if (typeof parsed === 'object' && !Array.isArray(parsed) && Object.keys(parsed).length > 0) {
+                    // New format: { "Lunes": "18:00 - 19:00", ... }
+                    const items = Object.entries(parsed).map(([day, time]) => {
+                        const letter = dayLetterMap[day] || day.substring(0,1);
+                        return `<span class="day-tag active" title="${day}: ${time || 'Sin horario'}">${letter}${time ? '<small>'+time+'</small>' : ''}</span>`;
+                    });
+                    scheduleDisplay = `<div class="member-schedule"><div class="days-badge">${items.join('')}</div></div>`;
+                } else if (Array.isArray(parsed) && parsed.length > 0) {
+                    // Old format: ["Lunes","Martes"]
+                    const tags = parsed.map(d => `<span class="day-tag active">${dayLetterMap[d] || d}</span>`);
+                    const timeDisplay = member.schedule_time ? `<span class="schedule-badge">${member.schedule_time}</span>` : '';
+                    scheduleDisplay = `<div class="member-schedule"><div class="days-badge">${tags.join('')}</div>${timeDisplay}</div>`;
+                }
+            } catch (e) { }
         }
 
         const isOwner = currentUserRole === 'OWNER';
@@ -1646,11 +1651,19 @@ function updateQuickStats() {
 window.exportMembersToExcel = () => {
     // CSV Header
     let csvContent = '\uFEFF'; // BOM for UTF-8
-    csvContent += 'Nombre,Apellido,Contacto,Estado,Horario,Notas\n';
+    csvContent += 'Nombre,Apellido,Contacto,Estado,Días y Horarios,Notas\n';
 
     currentMembers.forEach(member => {
         const status = activeMemberIds.has(member.id) ? 'Al día' : 'Vencido';
-        const schedule = member.schedule_time || '-';
+        let daysSchedule = '-';
+        try {
+            const parsed = member.attendance_days ? JSON.parse(member.attendance_days) : {};
+            if (typeof parsed === 'object' && !Array.isArray(parsed) && Object.keys(parsed).length > 0) {
+                daysSchedule = Object.entries(parsed).map(([d, t]) => `${d}: ${t || 'sin horario'}`).join('; ');
+            } else if (Array.isArray(parsed) && parsed.length > 0) {
+                daysSchedule = parsed.join(', ') + (member.schedule_time ? ` (${member.schedule_time})` : '');
+            }
+        } catch(e) {}
         const notes = member.notes ? member.notes.replace(/"/g, '""') : '';
 
         const rowData = [
@@ -1658,7 +1671,7 @@ window.exportMembersToExcel = () => {
             `"${member.last_name}"`,
             `"${member.contact}"`,
             `"${status}"`,
-            `"${schedule}"`,
+            `"${daysSchedule}"`,
             `"${notes}"`
         ];
         csvContent += rowData.join(',') + '\n';
@@ -1730,11 +1743,122 @@ window.changeItemsPerPage = function (value) {
 // The following has been removed to avoid duplicate declaration:
 // const ui = { ... } - moved to utils.js
 
+// =======================================
+// DAY-SCHEDULE PICKER SYSTEM
+// =======================================
+const GYM_TIMES = [
+    '06:30 - 08:30', '07:30 - 08:30', '09:00 - 10:00',
+    '14:00 - 15:00', '17:00 - 18:00', '18:00 - 19:00',
+    '19:00 - 20:00', '20:00 - 21:00'
+];
+const GYM_DAYS = [
+    { key: 'Lunes', label: 'L' },
+    { key: 'Martes', label: 'M' },
+    { key: 'Miércoles', label: 'X' },
+    { key: 'Jueves', label: 'J' },
+    { key: 'Viernes', label: 'V' },
+    { key: 'Sábado', label: 'S' }
+];
+
+function initDayPicker(containerId, data = {}) {
+    const container = document.getElementById(containerId);
+    if (!container) return;
+
+    let html = '<div class="dsp-pills">';
+    GYM_DAYS.forEach(d => {
+        const isActive = data[d.key] ? 'active' : '';
+        html += `<button type="button" class="dsp-pill ${isActive}" data-day="${d.key}" title="${d.key}">${d.label}</button>`;
+    });
+    html += '</div>';
+    html += '<div class="dsp-time-slots"></div>';
+
+    container.innerHTML = html;
+
+    // Render open time selectors
+    renderOpenTimeSlots(container, data);
+
+    // Attach events
+    container.querySelectorAll('.dsp-pill').forEach(pill => {
+        pill.addEventListener('click', () => {
+            pill.classList.toggle('active');
+            const day = pill.dataset.day;
+            const slotsContainer = container.querySelector('.dsp-time-slots');
+
+            if (pill.classList.contains('active')) {
+                // Add time slot row
+                addTimeSlotRow(slotsContainer, day, data[day] || '');
+            } else {
+                // Remove time slot row
+                const row = slotsContainer.querySelector(`.dsp-time-row[data-day="${day}"]`);
+                if (row) {
+                    row.style.animation = 'dspSlideOut 0.2s ease forwards';
+                    setTimeout(() => row.remove(), 200);
+                }
+            }
+        });
+    });
+}
+
+function renderOpenTimeSlots(container, data) {
+    const slotsContainer = container.querySelector('.dsp-time-slots');
+    slotsContainer.innerHTML = '';
+    GYM_DAYS.forEach(d => {
+        if (data[d.key]) {
+            addTimeSlotRow(slotsContainer, d.key, data[d.key]);
+        }
+    });
+}
+
+function addTimeSlotRow(slotsContainer, dayKey, currentValue) {
+    // Don't duplicate
+    if (slotsContainer.querySelector(`.dsp-time-row[data-day="${dayKey}"]`)) return;
+
+    const dayAbbrev = { 'Lunes': 'LUN', 'Martes': 'MAR', 'Miércoles': 'MIÉ', 'Jueves': 'JUE', 'Viernes': 'VIE', 'Sábado': 'SÁB' };
+
+    const row = document.createElement('div');
+    row.className = 'dsp-time-row';
+    row.dataset.day = dayKey;
+
+    let optionsHtml = '<option value="">Horario...</option>';
+    GYM_TIMES.forEach(t => {
+        optionsHtml += `<option value="${t}" ${t === currentValue ? 'selected' : ''}>${t}</option>`;
+    });
+
+    row.innerHTML = `
+        <span class="dsp-time-label">${dayAbbrev[dayKey] || dayKey}</span>
+        <select class="dsp-time-select" data-day="${dayKey}">${optionsHtml}</select>
+    `;
+
+    // Insert in day order
+    const dayOrder = { 'Lunes': 1, 'Martes': 2, 'Miércoles': 3, 'Jueves': 4, 'Viernes': 5, 'Sábado': 6 };
+    const existingRows = slotsContainer.querySelectorAll('.dsp-time-row');
+    let inserted = false;
+    for (const existing of existingRows) {
+        if ((dayOrder[dayKey] || 99) < (dayOrder[existing.dataset.day] || 99)) {
+            slotsContainer.insertBefore(row, existing);
+            inserted = true;
+            break;
+        }
+    }
+    if (!inserted) slotsContainer.appendChild(row);
+}
+
+function getDayPickerData(containerId) {
+    const container = document.getElementById(containerId);
+    if (!container) return {};
+    const result = {};
+    container.querySelectorAll('.dsp-pill.active').forEach(pill => {
+        const day = pill.dataset.day;
+        const select = container.querySelector(`.dsp-time-select[data-day="${day}"]`);
+        result[day] = select ? select.value : '';
+    });
+    return result;
+}
+
 // --- Add Member ---
 window.openAddMemberModal = () => {
-    // Reset form and checkboxes when opening
     document.getElementById('add-member-form').reset();
-    document.querySelectorAll('#new-schedules-selector input[type="checkbox"]').forEach(cb => cb.checked = false);
+    initDayPicker('new-day-picker', {});
     document.getElementById('add-member-modal').classList.remove('hidden');
 };
 
@@ -1782,36 +1906,16 @@ async function handleAddMember(e) {
     submitBtn.disabled = true;
     submitBtn.textContent = 'Guardando...';
 
-    // Get schedule data
-    const selectedSchedules = Array.from(document.querySelectorAll('#new-schedules-selector input[type="checkbox"]:checked')).map(cb => cb.value);
-
-    // Validate capacity
-    for (const scheduleId of selectedSchedules) {
-        const { count } = await supabase
-            .from('member_schedules')
-            .select('id', { count: 'exact', head: true })
-            .eq('schedule_id', scheduleId);
-
-        const { data: schedData } = await supabase.from('schedules').select('max_capacity, day_of_week, start_time, end_time').eq('id', scheduleId).single();
-        if (schedData && count !== null && count >= schedData.max_capacity) {
-            ui.alert(`El horario de ${schedData.day_of_week} ${schedData.start_time}-${schedData.end_time} está lleno (${count}/${schedData.max_capacity}).`, 'error');
-            submitBtn.disabled = false;
-            submitBtn.textContent = originalText;
-            return;
-        }
-    }
+    // Get day/schedule data from the new picker
+    const dayScheduleData = getDayPickerData('new-day-picker');
+    const attendanceDaysJson = JSON.stringify(dayScheduleData);
+    const firstTime = Object.values(dayScheduleData).find(v => v) || '';
 
     const { data: newMemberData, error } = await supabase.from('members').insert([{
-        first_name, last_name, contact, schedule_time: '', attendance_days: '[]'
+        first_name, last_name, contact, schedule_time: firstTime, attendance_days: attendanceDaysJson
     }]).select().single();
 
-    if (!error && newMemberData && selectedSchedules.length > 0) {
-        const scheduleInserts = selectedSchedules.map(scheduleId => ({
-            member_id: newMemberData.id,
-            schedule_id: scheduleId
-        }));
-        await supabase.from('member_schedules').insert(scheduleInserts);
-    }
+
 
     // Re-enable button
     submitBtn.disabled = false;
@@ -1839,7 +1943,6 @@ async function handleAddMember(e) {
 
 // --- Edit Member ---
 window.openEditMemberModal = async (id) => {
-    // Lookup member in cache
     const member = currentMembers.find(m => m.id === id);
     if (!member) {
         ui.alert('Error: No se encontraron datos del alumno.', 'error');
@@ -1851,22 +1954,21 @@ window.openEditMemberModal = async (id) => {
     document.getElementById('edit-lastname').value = member.last_name;
     document.getElementById('edit-contact').value = member.contact;
 
-    // Reset all checkboxes first
-    document.querySelectorAll('#edit-schedules-selector input[type="checkbox"]').forEach(cb => cb.checked = false);
-
-    // Fetch existing member_schedules
-    const { data: memberSchedules } = await supabase
-        .from('member_schedules')
-        .select('schedule_id')
-        .eq('member_id', id);
-
-    if (memberSchedules) {
-        memberSchedules.forEach(ms => {
-            const cb = document.querySelector(`#edit-schedules-selector input[value="${ms.schedule_id}"]`);
-            if (cb) cb.checked = true;
-        });
+    // Parse attendance_days — support both old array format AND new object format
+    let dayData = {};
+    try {
+        const parsed = member.attendance_days ? JSON.parse(member.attendance_days) : {};
+        if (Array.isArray(parsed)) {
+            // Old format: ["Lunes","Martes"] → convert to object with empty times
+            parsed.forEach(d => { dayData[d] = member.schedule_time || ''; });
+        } else {
+            dayData = parsed;
+        }
+    } catch(e) {
+        dayData = {};
     }
 
+    initDayPicker('edit-day-picker', dayData);
     document.getElementById('edit-member-modal').classList.remove('hidden');
 };
 
@@ -1881,72 +1983,25 @@ async function handleEditMember(e) {
     const last_name = document.getElementById('edit-lastname').value.trim();
     const contact = document.getElementById('edit-contact').value.trim();
 
-    // Validation
-    if (!validators.isNotEmpty(first_name)) {
-        ui.alert('El nombre es obligatorio', 'error');
-        return;
-    }
-    if (!validators.isNotEmpty(last_name)) {
-        ui.alert('El apellido es obligatorio', 'error');
-        return;
-    }
-    if (!validators.isNotEmpty(contact)) {
-        ui.alert('El contacto es obligatorio', 'error');
-        return;
-    }
+    if (!validators.isNotEmpty(first_name)) { ui.alert('El nombre es obligatorio', 'error'); return; }
+    if (!validators.isNotEmpty(last_name)) { ui.alert('El apellido es obligatorio', 'error'); return; }
+    if (!validators.isNotEmpty(contact)) { ui.alert('El contacto es obligatorio', 'error'); return; }
 
-    // Disable button to prevent double submission
     const submitBtn = document.getElementById('update-member-btn');
     const originalText = submitBtn.textContent;
     submitBtn.disabled = true;
     submitBtn.textContent = 'Actualizando...';
 
-    // Get selected schedules
-    const selectedSchedules = Array.from(document.querySelectorAll('#edit-schedules-selector input[type="checkbox"]:checked')).map(cb => cb.value);
-
-    // Fetch current schedules to see what's newly added
-    const { data: currentSchedules } = await supabase.from('member_schedules').select('schedule_id').eq('member_id', id);
-    const existingIds = currentSchedules ? currentSchedules.map(ms => ms.schedule_id) : [];
-
-    // Validate capacity for NEW schedules
-    for (const scheduleId of selectedSchedules) {
-        if (!existingIds.includes(scheduleId)) {
-            const { count } = await supabase
-                .from('member_schedules')
-                .select('id', { count: 'exact', head: true })
-                .eq('schedule_id', scheduleId);
-
-            const { data: schedData } = await supabase.from('schedules').select('max_capacity, day_of_week, start_time, end_time').eq('id', scheduleId).single();
-            if (schedData && count !== null && count >= schedData.max_capacity) {
-                ui.alert(`El horario de ${schedData.day_of_week} ${schedData.start_time}-${schedData.end_time} está lleno (${count}/${schedData.max_capacity}).`, 'error');
-                submitBtn.disabled = false;
-                submitBtn.textContent = originalText;
-                return;
-            }
-        }
-    }
+    // Get day/schedule data from picker
+    const editDayData = getDayPickerData('edit-day-picker');
+    const editDaysJson = JSON.stringify(editDayData);
+    const editFirstTime = Object.values(editDayData).find(v => v) || '';
 
     const { error } = await supabase
         .from('members')
-        .update({ first_name, last_name, contact })
+        .update({ first_name, last_name, contact, schedule_time: editFirstTime, attendance_days: editDaysJson })
         .eq('id', id);
 
-    if (!error) {
-        // Delete removed schedules
-        const toDelete = existingIds.filter(id => !selectedSchedules.includes(id));
-        if (toDelete.length > 0) {
-            await supabase.from('member_schedules').delete().eq('member_id', id).in('schedule_id', toDelete);
-        }
-        // Insert new schedules
-        const toInsert = selectedSchedules.filter(id => !existingIds.includes(id)).map(scheduleId => ({
-            member_id: id, schedule_id: scheduleId
-        }));
-        if (toInsert.length > 0) {
-            await supabase.from('member_schedules').insert(toInsert);
-        }
-    }
-
-    // Re-enable button
     submitBtn.disabled = false;
     submitBtn.textContent = originalText;
 
@@ -1956,9 +2011,6 @@ async function handleEditMember(e) {
         closeEditMemberModal();
         ui.alert('Alumno actualizado correctamente.', 'success');
         loadMembers();
-        // Reset the form using its ID rather than e.target which may not be the form
-        const form = document.getElementById('edit-member-form');
-        if (form) form.reset();
     }
 }
 
@@ -3946,33 +3998,126 @@ function renderSchedulesSelectors() {
     const selectors = ['new-schedules-selector', 'edit-schedules-selector'];
 
     const dayOrder = { 'Lunes': 1, 'Martes': 2, 'Miércoles': 3, 'Jueves': 4, 'Viernes': 5, 'Sábado': 6, 'Domingo': 7 };
+    const dayAbbrev = { 'Lunes': 'Lun', 'Martes': 'Mar', 'Miércoles': 'Mié', 'Jueves': 'Jue', 'Viernes': 'Vie', 'Sábado': 'Sáb', 'Domingo': 'Dom' };
 
     let html = '';
     if (currentSchedulesList.length === 0) {
         html = '<p class="text-muted">No hay horarios. Crea uno primero.</p>';
     } else {
-        const sorted = [...currentSchedulesList];
-        sorted.sort((a, b) => {
-            if (dayOrder[a.day_of_week] !== dayOrder[b.day_of_week]) {
-                return (dayOrder[a.day_of_week] || 99) - (dayOrder[b.day_of_week] || 99);
-            }
-            return a.start_time.localeCompare(b.start_time);
+        // Group schedules by day
+        const grouped = {};
+        currentSchedulesList.forEach(s => {
+            if (!grouped[s.day_of_week]) grouped[s.day_of_week] = [];
+            grouped[s.day_of_week].push(s);
         });
 
-        sorted.forEach(s => {
-            const isFull = s.current_enrolled >= s.max_capacity;
-            const fullClass = isFull ? 'text-danger' : '';
-            html += `<label class="day-checkbox" style="display:flex; justify-content:space-between; margin-bottom:5px; padding: 5px; background: rgba(0,0,0,0.2); border-radius: 4px; cursor: pointer;">
-                <span style="display:flex; align-items:center; gap:8px;"><input type="checkbox" value="${s.id}"> 
-                ${s.day_of_week} ${s.start_time} - ${s.end_time}</span>
-                <span class="${fullClass}" style="font-size:0.85em; font-weight:bold;">${s.current_enrolled}/${s.max_capacity}</span>
-            </label>`;
+        // Sort days
+        const sortedDays = Object.keys(grouped).sort((a, b) => (dayOrder[a] || 99) - (dayOrder[b] || 99));
+
+        // Sort time slots within each day
+        sortedDays.forEach(day => {
+            grouped[day].sort((a, b) => a.start_time.localeCompare(b.start_time));
+        });
+
+        // Build day tabs
+        html += '<div class="sched-selector-tabs">';
+        sortedDays.forEach((day, i) => {
+            const hasSelected = grouped[day].some(s => false); // will be updated by JS below
+            html += `<button type="button" class="sched-day-tab ${i === 0 ? 'active' : ''}" data-day="${day}" onclick="switchScheduleDay(this)">${dayAbbrev[day] || day}</button>`;
+        });
+        html += '</div>';
+
+        // Build time slot panels for each day
+        sortedDays.forEach((day, i) => {
+            html += `<div class="sched-day-panel ${i === 0 ? 'active' : ''}" data-day-panel="${day}">`;
+            html += `<div class="sched-day-title"><i class="fas fa-calendar-day"></i> ${day}</div>`;
+            grouped[day].forEach(s => {
+                const isFull = s.current_enrolled >= s.max_capacity;
+                const fullClass = isFull ? 'sched-slot-full' : '';
+                const capacityClass = isFull ? 'text-danger' : (s.current_enrolled / s.max_capacity >= 0.8 ? 'text-warning' : 'text-success');
+                const pct = Math.round((s.current_enrolled / s.max_capacity) * 100);
+                html += `<label class="sched-time-slot ${fullClass}">
+                    <span class="sched-slot-left">
+                        <input type="checkbox" value="${s.id}" ${isFull ? 'disabled' : ''}>
+                        <span class="sched-slot-time">
+                            <i class="fas fa-clock"></i> ${s.start_time} - ${s.end_time}
+                        </span>
+                    </span>
+                    <span class="sched-slot-right">
+                        <span class="sched-capacity ${capacityClass}">${s.current_enrolled}/${s.max_capacity}</span>
+                        <div class="sched-capacity-bar"><div class="sched-capacity-fill ${capacityClass}" style="width:${pct}%"></div></div>
+                    </span>
+                </label>`;
+            });
+            html += '</div>';
         });
     }
 
     selectors.forEach(id => {
         const el = document.getElementById(id);
         if (el) el.innerHTML = html;
+    });
+
+    // After rendering, update tab badges to show selected count
+    updateScheduleTabBadges();
+}
+
+// Switch day tab in schedule selector
+window.switchScheduleDay = function(btn) {
+    const container = btn.closest('.schedules-selector') || btn.parentElement.parentElement;
+    const day = btn.dataset.day;
+
+    // Toggle all tabs in this container
+    container.querySelectorAll('.sched-day-tab').forEach(t => t.classList.remove('active'));
+    btn.classList.add('active');
+
+    // Toggle panels
+    container.querySelectorAll('.sched-day-panel').forEach(p => {
+        p.classList.toggle('active', p.dataset.dayPanel === day);
+    });
+};
+
+// Update badge counts on day tabs when checkboxes change
+function updateScheduleTabBadges() {
+    const selectors = ['new-schedules-selector', 'edit-schedules-selector'];
+    selectors.forEach(id => {
+        const el = document.getElementById(id);
+        if (!el) return;
+
+        // Listen for checkbox changes
+        el.addEventListener('change', function(e) {
+            if (e.target.type === 'checkbox') {
+                updateTabBadgesForContainer(el);
+            }
+        });
+
+        // Initial update
+        updateTabBadgesForContainer(el);
+    });
+}
+
+function updateTabBadgesForContainer(container) {
+    container.querySelectorAll('.sched-day-tab').forEach(tab => {
+        const day = tab.dataset.day;
+        const panel = container.querySelector(`.sched-day-panel[data-day-panel="${day}"]`);
+        if (!panel) return;
+
+        const checkedCount = panel.querySelectorAll('input[type="checkbox"]:checked').length;
+
+        // Remove existing badge
+        let badge = tab.querySelector('.sched-tab-badge');
+        if (checkedCount > 0) {
+            if (!badge) {
+                badge = document.createElement('span');
+                badge.className = 'sched-tab-badge';
+                tab.appendChild(badge);
+            }
+            badge.textContent = checkedCount;
+            tab.classList.add('has-selected');
+        } else {
+            if (badge) badge.remove();
+            tab.classList.remove('has-selected');
+        }
     });
 }
 
