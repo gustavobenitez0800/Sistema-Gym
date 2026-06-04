@@ -1,4 +1,4 @@
-const SUPABASE_URL = 'https://qmhtwygdkiykzzyicykz.supabase.co';
-const SUPABASE_KEY = 'sb_publishable_mt_I_b3rv3MSwS4AjT4HJA_y5GhQLp-';
+const SUPABASE_URL = 'https://oxgnrydnflxqkqegwhyx.supabase.co';
+const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im94Z25yeWRuZmx4cWtxZWd3aHl4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA1MzEzMjQsImV4cCI6MjA5NjEwNzMyNH0.EjW_pqSDmgkp95ES1hXTSNMNlkCAHxYwRNaVNFACKQU';
 
 export { SUPABASE_URL, SUPABASE_KEY };
