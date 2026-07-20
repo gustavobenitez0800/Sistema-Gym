@@ -8,7 +8,7 @@
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <link rel="icon" type="image/x-icon" href="./img/Logo.png">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
-    <link rel="stylesheet" href="style.css?v=9.0">
+    <link rel="stylesheet" href="style.css?v=10.0">
     <style>
         .employee-mode .owner-only {
             display: none !important;
@@ -623,13 +623,11 @@
             <section id="schedules" class="content-section hidden-section">
                 <div class="header-row">
                     <div>
-                        <h2>Gestión de Horarios</h2>
+                        <h2>Grupos y Horarios</h2>
+                        <p style="color:#888; font-size:0.85rem; margin-top:4px;">Los grupos se generan automáticamente según los días y el horario de cada alumno.</p>
                     </div>
                     <div class="header-actions">
-                        <input type="text" id="search-schedule-member" placeholder="Buscar alumno en horarios..." class="search-input" autocomplete="off">
-                        <button class="btn-primary" onclick="openAddScheduleModal()">
-                            <i class="fas fa-plus"></i> Nuevo Horario
-                        </button>
+                        <input type="text" id="search-schedule-member" placeholder="Buscar alumno en grupos..." class="search-input" autocomplete="off">
                     </div>
                 </div>
 
@@ -649,16 +647,16 @@
                 <!-- Quick Stats -->
                 <div class="schedule-stats-row" id="schedule-stats-row">
                     <div class="schedule-stat-chip">
-                        <i class="fas fa-calendar-alt"></i>
-                        <span id="sched-stat-total">0 horarios</span>
+                        <i class="fas fa-layer-group"></i>
+                        <span id="sched-stat-total">0 grupos</span>
                     </div>
                     <div class="schedule-stat-chip">
                         <i class="fas fa-users"></i>
-                        <span id="sched-stat-enrolled">0 inscriptos</span>
+                        <span id="sched-stat-enrolled">0 alumnos en grupos</span>
                     </div>
                     <div class="schedule-stat-chip warning">
                         <i class="fas fa-exclamation-circle"></i>
-                        <span id="sched-stat-full">0 llenos</span>
+                        <span id="sched-stat-full">0 sin horario</span>
                     </div>
                 </div>
 
@@ -830,59 +828,6 @@
                 </div>
                 <p class="fingerprint-text">Próximamente: Acceso por Huella Digital</p>
             </div>
-        </div>
-    </div>
-
-    <!-- Add Schedule Modal -->
-    <div id="add-schedule-modal" class="modal hidden">
-        <div class="modal-content" style="max-width: 400px;">
-            <span class="close-btn" onclick="closeAddScheduleModal()">&times;</span>
-            <h2>Nuevo Horario</h2>
-            <form id="add-schedule-form">
-                <label>Día de la Semana</label>
-                <select id="schedule-day" required>
-                    <option value="Lunes">Lunes</option>
-                    <option value="Martes">Martes</option>
-                    <option value="Miércoles">Miércoles</option>
-                    <option value="Jueves">Jueves</option>
-                    <option value="Viernes">Viernes</option>
-                    <option value="Sábado">Sábado</option>
-                </select>
-                <label>Hora de Inicio</label>
-                <input type="time" id="schedule-start" required>
-                <label>Hora de Fin</label>
-                <input type="time" id="schedule-end" required>
-                <label>Capacidad Máxima</label>
-                <input type="number" id="schedule-capacity" value="15" min="1" required>
-                <button type="submit">Guardar</button>
-            </form>
-        </div>
-    </div>
-
-    <!-- Edit Schedule Modal -->
-    <div id="edit-schedule-modal" class="modal hidden">
-        <div class="modal-content" style="max-width: 400px;">
-            <span class="close-btn" onclick="closeEditScheduleModal()">&times;</span>
-            <h2>Editar Horario</h2>
-            <form id="edit-schedule-form">
-                <input type="hidden" id="edit-schedule-id">
-                <label>Día de la Semana</label>
-                <select id="edit-schedule-day" required>
-                    <option value="Lunes">Lunes</option>
-                    <option value="Martes">Martes</option>
-                    <option value="Miércoles">Miércoles</option>
-                    <option value="Jueves">Jueves</option>
-                    <option value="Viernes">Viernes</option>
-                    <option value="Sábado">Sábado</option>
-                </select>
-                <label>Hora de Inicio</label>
-                <input type="time" id="edit-schedule-start" required>
-                <label>Hora de Fin</label>
-                <input type="time" id="edit-schedule-end" required>
-                <label>Capacidad Máxima</label>
-                <input type="number" id="edit-schedule-capacity" min="1" required>
-                <button type="submit">Actualizar</button>
-            </form>
         </div>
     </div>
 
@@ -1061,7 +1006,7 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.29/jspdf.plugin.autotable.min.js"></script>
 
-    <script type="module" src="app.js?v=16.0"></script>
+    <script type="module" src="app.js?v=17.0"></script>
 </body>
 
 </html>

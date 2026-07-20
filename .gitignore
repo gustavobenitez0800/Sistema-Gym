@@ -9,6 +9,7 @@ Thumbs.db
 *.swo
 *~
 .gemini/
+.claude/
 
 # Builds e Instaladores (NO SUBIR)
 dist/

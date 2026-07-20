@@ -1510,12 +1510,21 @@ function renderPagination() {
             try {
                 const parsed = JSON.parse(member.attendance_days);
                 if (typeof parsed === 'object' && !Array.isArray(parsed) && Object.keys(parsed).length > 0) {
-                    // New format: { "Lunes": "18:00 - 19:00", ... }
-                    const items = Object.entries(parsed).map(([day, time]) => {
-                        const letter = dayLetterMap[day] || day.substring(0,1);
-                        return `<span class="day-tag active" title="${day}: ${time || 'Sin horario'}">${letter}${time ? '<small>'+time+'</small>' : ''}</span>`;
-                    });
-                    scheduleDisplay = `<div class="member-schedule"><div class="days-badge">${items.join('')}</div></div>`;
+                    // New format: { "Lunes": "07:30 a 08:30", ... }
+                    const uniqueTimes = [...new Set(Object.values(parsed).filter(v => v))];
+                    if (uniqueTimes.length <= 1) {
+                        // Todos los días comparten el mismo horario: un solo badge
+                        const tags = Object.keys(parsed).map(day => `<span class="day-tag active" title="${day}">${dayLetterMap[day] || day.substring(0,1)}</span>`);
+                        const timeDisplay = uniqueTimes[0] ? `<span class="schedule-badge">${uniqueTimes[0]}</span>` : '';
+                        scheduleDisplay = `<div class="member-schedule"><div class="days-badge">${tags.join('')}</div>${timeDisplay}</div>`;
+                    } else {
+                        // Formato heredado con horarios distintos por día
+                        const items = Object.entries(parsed).map(([day, time]) => {
+                            const letter = dayLetterMap[day] || day.substring(0,1);
+                            return `<span class="day-tag active" title="${day}: ${time || 'Sin horario'}">${letter}${time ? '<small>'+time+'</small>' : ''}</span>`;
+                        });
+                        scheduleDisplay = `<div class="member-schedule"><div class="days-badge">${items.join('')}</div></div>`;
+                    }
                 } else if (Array.isArray(parsed) && parsed.length > 0) {
                     // Old format: ["Lunes","Martes"]
                     const tags = parsed.map(d => `<span class="day-tag active">${dayLetterMap[d] || d}</span>`);
@@ -1524,8 +1533,6 @@ function renderPagination() {
                 }
             } catch (e) { }
         }
-
-        const isOwner = currentUserRole === 'OWNER';
 
         tr.innerHTML = `
             <td class="${nameClass}">${member.first_name}</td>
@@ -1549,9 +1556,9 @@ function renderPagination() {
                 <button class="action-btn" title="Objetivos" onclick="openObjectivesModal('${member.id}', '${fullName}')">
                     <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color:#10B981;"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"></path></svg>
                 </button>
-                ${isOwner ? `<button class="action-btn btn-delete" title="Eliminar Alumno" onclick="deleteMember('${member.id}')">
+                <button class="action-btn btn-delete" title="Eliminar Alumno" onclick="deleteMember('${member.id}')">
                     <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color:#ef4444;"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
-                </button>` : ''}
+                </button>
             </td>
         `;
         tbody.appendChild(tr);
@@ -1745,12 +1752,8 @@ window.changeItemsPerPage = function (value) {
 
 // =======================================
 // DAY-SCHEDULE PICKER SYSTEM
+// Días seleccionables + horario de texto libre (ej: "07:30 a 08:30")
 // =======================================
-const GYM_TIMES = [
-    '06:30 - 08:30', '07:30 - 08:30', '09:00 - 10:00',
-    '14:00 - 15:00', '17:00 - 18:00', '18:00 - 19:00',
-    '19:00 - 20:00', '20:00 - 21:00'
-];
 const GYM_DAYS = [
     { key: 'Lunes', label: 'L' },
     { key: 'Martes', label: 'M' },
@@ -1764,93 +1767,44 @@ function initDayPicker(containerId, data = {}) {
     const container = document.getElementById(containerId);
     if (!container) return;
 
+    // Todos los días comparten un mismo horario: tomamos el primero no vacío
+    const horario = Object.values(data).find(v => v) || '';
+
     let html = '<div class="dsp-pills">';
     GYM_DAYS.forEach(d => {
-        const isActive = data[d.key] ? 'active' : '';
+        const isActive = Object.prototype.hasOwnProperty.call(data, d.key) ? 'active' : '';
         html += `<button type="button" class="dsp-pill ${isActive}" data-day="${d.key}" title="${d.key}">${d.label}</button>`;
     });
     html += '</div>';
-    html += '<div class="dsp-time-slots"></div>';
+    html += `
+        <div class="dsp-time-free">
+            <span class="dsp-time-label">Horario</span>
+            <input type="text" class="dsp-time-input" placeholder="Ej: 07:30 a 08:30" autocomplete="off" maxlength="40">
+        </div>`;
 
     container.innerHTML = html;
-
-    // Render open time selectors
-    renderOpenTimeSlots(container, data);
+    container.querySelector('.dsp-time-input').value = horario;
 
     // Attach events
     container.querySelectorAll('.dsp-pill').forEach(pill => {
-        pill.addEventListener('click', () => {
-            pill.classList.toggle('active');
-            const day = pill.dataset.day;
-            const slotsContainer = container.querySelector('.dsp-time-slots');
-
-            if (pill.classList.contains('active')) {
-                // Add time slot row
-                addTimeSlotRow(slotsContainer, day, data[day] || '');
-            } else {
-                // Remove time slot row
-                const row = slotsContainer.querySelector(`.dsp-time-row[data-day="${day}"]`);
-                if (row) {
-                    row.style.animation = 'dspSlideOut 0.2s ease forwards';
-                    setTimeout(() => row.remove(), 200);
-                }
-            }
-        });
+        pill.addEventListener('click', () => pill.classList.toggle('active'));
     });
 }
 
-function renderOpenTimeSlots(container, data) {
-    const slotsContainer = container.querySelector('.dsp-time-slots');
-    slotsContainer.innerHTML = '';
-    GYM_DAYS.forEach(d => {
-        if (data[d.key]) {
-            addTimeSlotRow(slotsContainer, d.key, data[d.key]);
-        }
-    });
-}
-
-function addTimeSlotRow(slotsContainer, dayKey, currentValue) {
-    // Don't duplicate
-    if (slotsContainer.querySelector(`.dsp-time-row[data-day="${dayKey}"]`)) return;
-
-    const dayAbbrev = { 'Lunes': 'LUN', 'Martes': 'MAR', 'Miércoles': 'MIÉ', 'Jueves': 'JUE', 'Viernes': 'VIE', 'Sábado': 'SÁB' };
-
-    const row = document.createElement('div');
-    row.className = 'dsp-time-row';
-    row.dataset.day = dayKey;
-
-    let optionsHtml = '<option value="">Horario...</option>';
-    GYM_TIMES.forEach(t => {
-        optionsHtml += `<option value="${t}" ${t === currentValue ? 'selected' : ''}>${t}</option>`;
-    });
-
-    row.innerHTML = `
-        <span class="dsp-time-label">${dayAbbrev[dayKey] || dayKey}</span>
-        <select class="dsp-time-select" data-day="${dayKey}">${optionsHtml}</select>
-    `;
-
-    // Insert in day order
-    const dayOrder = { 'Lunes': 1, 'Martes': 2, 'Miércoles': 3, 'Jueves': 4, 'Viernes': 5, 'Sábado': 6 };
-    const existingRows = slotsContainer.querySelectorAll('.dsp-time-row');
-    let inserted = false;
-    for (const existing of existingRows) {
-        if ((dayOrder[dayKey] || 99) < (dayOrder[existing.dataset.day] || 99)) {
-            slotsContainer.insertBefore(row, existing);
-            inserted = true;
-            break;
-        }
-    }
-    if (!inserted) slotsContainer.appendChild(row);
+function getDayPickerHorario(containerId) {
+    const container = document.getElementById(containerId);
+    if (!container) return '';
+    const input = container.querySelector('.dsp-time-input');
+    return input ? input.value.trim().replace(/\s+/g, ' ') : '';
 }
 
 function getDayPickerData(containerId) {
     const container = document.getElementById(containerId);
     if (!container) return {};
+    const horario = getDayPickerHorario(containerId);
     const result = {};
     container.querySelectorAll('.dsp-pill.active').forEach(pill => {
-        const day = pill.dataset.day;
-        const select = container.querySelector(`.dsp-time-select[data-day="${day}"]`);
-        result[day] = select ? select.value : '';
+        result[pill.dataset.day] = horario;
     });
     return result;
 }
@@ -1909,7 +1863,7 @@ async function handleAddMember(e) {
     // Get day/schedule data from the new picker
     const dayScheduleData = getDayPickerData('new-day-picker');
     const attendanceDaysJson = JSON.stringify(dayScheduleData);
-    const firstTime = Object.values(dayScheduleData).find(v => v) || '';
+    const firstTime = getDayPickerHorario('new-day-picker');
 
     const { data: newMemberData, error } = await supabase.from('members').insert([{
         first_name, last_name, contact, schedule_time: firstTime, attendance_days: attendanceDaysJson
@@ -1928,6 +1882,7 @@ async function handleAddMember(e) {
         ui.alert('Alumno agregado correctamente.', 'success');
         loadMembers();
         loadDashboard();
+        loadSchedules();
         e.target.reset();
 
         // WhatsApp Automation: Welcome Message
@@ -1995,7 +1950,7 @@ async function handleEditMember(e) {
     // Get day/schedule data from picker
     const editDayData = getDayPickerData('edit-day-picker');
     const editDaysJson = JSON.stringify(editDayData);
-    const editFirstTime = Object.values(editDayData).find(v => v) || '';
+    const editFirstTime = getDayPickerHorario('edit-day-picker');
 
     const { error } = await supabase
         .from('members')
@@ -2011,26 +1966,31 @@ async function handleEditMember(e) {
         closeEditMemberModal();
         ui.alert('Alumno actualizado correctamente.', 'success');
         loadMembers();
+        loadSchedules();
     }
 }
 
-// --- Delete Member (Soft Delete) ---
+// --- Delete Member (Permanente) ---
 window.deleteMember = async (id) => {
-    const confirmed = await ui.confirm('¿Estás seguro de que quieres eliminar a este alumno? Se archivará y no aparecerá en la lista activa, pero su historial de pagos se conservará.');
+    const member = currentMembers.find(m => m.id === id);
+    const name = member ? `${member.first_name} ${member.last_name}` : 'este alumno';
+
+    const confirmed = await ui.confirm(`¿Seguro que quieres eliminar a ${name}? Se borrará de forma permanente de todos los listados, junto con su historial de pagos y registros. Esta acción NO se puede deshacer.`);
     if (!confirmed) return;
 
-    // Soft Delete: active = false
+    // Borrado definitivo: los pagos, asistencias y vínculos se eliminan en cascada (ON DELETE CASCADE)
     const { error } = await supabase
         .from('members')
-        .update({ active: false })
+        .delete()
         .eq('id', id);
 
     if (error) {
         ui.alert('Error al eliminar: ' + error.message, 'error');
     } else {
-        ui.alert('Alumno eliminado (archivado) correctamente.', 'success');
+        ui.alert(`${name} fue eliminado permanentemente.`, 'success');
         loadMembers();
         loadDashboard();
+        loadSchedules();
     }
 }
 
@@ -3709,16 +3669,12 @@ document.querySelectorAll('.modal-content').forEach(content => {
 log('[APP] Sistema de Gimnasio cargado correctamente.');
 
 // ==========================================
-// SCHEDULES MODULE
+// SCHEDULES MODULE (Grupos Automáticos)
+// Los grupos se generan solos a partir de los días y el horario de cada alumno.
+// Alumnos con los mismos días + horario comparten grupo.
 // ==========================================
 
 document.addEventListener('DOMContentLoaded', () => {
-    const addScheduleForm = document.getElementById('add-schedule-form');
-    if (addScheduleForm) addScheduleForm.addEventListener('submit', handleAddSchedule);
-
-    const editScheduleForm = document.getElementById('edit-schedule-form');
-    if (editScheduleForm) editScheduleForm.addEventListener('submit', handleEditSchedule);
-
     // Search in schedules
     const searchInput = document.getElementById('search-schedule-member');
     if (searchInput) {
@@ -3737,94 +3693,138 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 });
 
-let currentSchedulesList = [];
-let scheduleMembersMap = {}; // schedule_id -> [member objects]
+let currentGroupsList = []; // [{ key, name, days, horario, members, isUnassigned }]
 let currentScheduleDayFilter = 'all';
+
+const DAY_ORDER = { 'Lunes': 1, 'Martes': 2, 'Miércoles': 3, 'Jueves': 4, 'Viernes': 5, 'Sábado': 6, 'Domingo': 7 };
+
+// Extrae { days: [...], horario: '...' } de un alumno (soporta formato viejo y nuevo)
+function parseMemberSchedule(member) {
+    let days = [];
+    let horario = '';
+    try {
+        const parsed = member.attendance_days ? JSON.parse(member.attendance_days) : null;
+        if (Array.isArray(parsed)) {
+            // Formato viejo: ["Lunes","Martes"] + schedule_time aparte
+            days = parsed;
+            horario = member.schedule_time || '';
+        } else if (parsed && typeof parsed === 'object') {
+            // Formato nuevo: { "Lunes": "07:30 a 08:30", ... }
+            days = Object.keys(parsed);
+            horario = Object.values(parsed).find(v => v) || member.schedule_time || '';
+        }
+    } catch (e) { /* attendance_days inválido → queda sin grupo */ }
+
+    days = days.filter(d => DAY_ORDER[d]).sort((a, b) => DAY_ORDER[a] - DAY_ORDER[b]);
+    horario = (horario || '').trim().replace(/\s+/g, ' ');
+    return { days, horario };
+}
+
+// "Lunes a Viernes" si son días consecutivos, sino "Lunes, Miércoles y Viernes"
+function formatDaysLabel(days) {
+    if (days.length === 0) return '';
+    if (days.length === 1) return days[0];
+
+    const nums = days.map(d => DAY_ORDER[d]);
+    const isConsecutive = nums.every((n, i) => i === 0 || n === nums[i - 1] + 1);
+    if (isConsecutive && days.length >= 3) {
+        return `${days[0]} a ${days[days.length - 1]}`;
+    }
+    return days.slice(0, -1).join(', ') + ' y ' + days[days.length - 1];
+}
+
+function buildGroupName(days, horario) {
+    const daysLabel = formatDaysLabel(days);
+    if (daysLabel && horario) return `${daysLabel} - ${horario}`;
+    return daysLabel || horario || 'Sin días ni horario';
+}
 
 async function loadSchedules() {
     const container = document.getElementById('schedules-cards-container');
     if (container) container.innerHTML = '<div class="spinner"></div>';
 
     try {
-        // 1. Fetch all schedules
-        const { data: schedules, error: schedError } = await supabase.from('schedules').select('*');
+        // Estado de pago para el indicador "Al día / Vencido"
+        await loadMemberPaymentsStatus();
 
-        if (schedError) { console.error('[SCHEDULES] Error loading schedules:', schedError); return; }
-        if (!schedules) { console.warn('[SCHEDULES] No schedules found'); return; }
-
-        // 2. Fetch all member_schedule relationships
-        const { data: memberScheduleRels, error: relError } = await supabase
-            .from('member_schedules')
-            .select('schedule_id, member_id');
-
-        if (relError) { console.error('[SCHEDULES] Error loading member_schedules:', relError); }
-
-        // 3. Fetch all active members
-        const { data: activeMembers, error: membersError } = await supabase
+        const { data: activeMembers, error } = await supabase
             .from('members')
-            .select('id, first_name, last_name, contact, active')
+            .select('id, first_name, last_name, contact, attendance_days, schedule_time')
             .eq('active', true);
 
-        if (membersError) { console.error('[SCHEDULES] Error loading members:', membersError); }
-
-        // 4. Build a lookup map: member_id -> member object
-        const membersById = {};
-        if (activeMembers) {
-            activeMembers.forEach(m => { membersById[m.id] = m; });
+        if (error) {
+            console.error('[SCHEDULES] Error loading members:', error);
+            if (container) container.innerHTML = '<p style="text-align:center; color: #ef4444; padding: 20px;">Error al cargar los grupos. Revisa la consola.</p>';
+            return;
         }
 
-        // 5. Build schedule -> members mapping and counts
-        const counts = {};
-        scheduleMembersMap = {};
+        // Agrupación automática: misma combinación de días + horario = mismo grupo
+        const groupsMap = {};
+        const noSchedule = [];
 
-        if (memberScheduleRels) {
-            memberScheduleRels.forEach(ms => {
-                const member = membersById[ms.member_id];
-                if (member) { // Only active members are in membersById
-                    counts[ms.schedule_id] = (counts[ms.schedule_id] || 0) + 1;
-                    if (!scheduleMembersMap[ms.schedule_id]) {
-                        scheduleMembersMap[ms.schedule_id] = [];
-                    }
-                    scheduleMembersMap[ms.schedule_id].push(member);
-                }
+        (activeMembers || []).forEach(m => {
+            const { days, horario } = parseMemberSchedule(m);
+            if (days.length === 0 && !horario) {
+                noSchedule.push(m);
+                return;
+            }
+            const key = days.join('|') + '::' + horario.toLowerCase();
+            if (!groupsMap[key]) {
+                groupsMap[key] = { key, days, horario, name: buildGroupName(days, horario), members: [] };
+            }
+            groupsMap[key].members.push(m);
+        });
+
+        currentGroupsList = Object.values(groupsMap);
+
+        // Orden: por primer día de la semana, luego por horario
+        currentGroupsList.sort((a, b) => {
+            const dayA = a.days.length ? DAY_ORDER[a.days[0]] : 99;
+            const dayB = b.days.length ? DAY_ORDER[b.days[0]] : 99;
+            if (dayA !== dayB) return dayA - dayB;
+            return a.horario.localeCompare(b.horario);
+        });
+
+        // Alumnos sin días ni horario van a un grupo especial al final
+        if (noSchedule.length > 0) {
+            currentGroupsList.push({
+                key: '__unassigned__', days: [], horario: '',
+                name: 'Sin días ni horario asignados',
+                members: noSchedule, isUnassigned: true
             });
         }
 
-        // Sort members alphabetically within each schedule
-        Object.keys(scheduleMembersMap).forEach(schedId => {
-            scheduleMembersMap[schedId].sort((a, b) =>
+        // Alumnos ordenados alfabéticamente dentro de cada grupo
+        currentGroupsList.forEach(g => {
+            g.members.sort((a, b) =>
                 a.last_name.localeCompare(b.last_name) || a.first_name.localeCompare(b.first_name)
             );
         });
 
-        currentSchedulesList = schedules.map(s => ({
-            ...s,
-            current_enrolled: counts[s.id] || 0
-        }));
-
-        console.log(`[SCHEDULES] Loaded ${schedules.length} schedules, ${Object.keys(scheduleMembersMap).length} with members`);
+        console.log(`[SCHEDULES] ${currentGroupsList.length} grupos generados automáticamente`);
 
         renderScheduleCards();
-        renderSchedulesSelectors();
         updateScheduleStats();
     } catch (e) {
         console.error('[SCHEDULES] loadSchedules error:', e);
-        if (container) container.innerHTML = '<p style="text-align:center; color: #ef4444; padding: 20px;">Error al cargar horarios. Revisa la consola.</p>';
+        if (container) container.innerHTML = '<p style="text-align:center; color: #ef4444; padding: 20px;">Error al cargar los grupos. Revisa la consola.</p>';
     }
 }
 
 function updateScheduleStats() {
     const totalEl = document.getElementById('sched-stat-total');
     const enrolledEl = document.getElementById('sched-stat-enrolled');
-    const fullEl = document.getElementById('sched-stat-full');
+    const unassignedEl = document.getElementById('sched-stat-full');
 
-    if (totalEl) totalEl.textContent = `${currentSchedulesList.length} horario${currentSchedulesList.length !== 1 ? 's' : ''}`;
+    const realGroups = currentGroupsList.filter(g => !g.isUnassigned);
+    if (totalEl) totalEl.textContent = `${realGroups.length} grupo${realGroups.length !== 1 ? 's' : ''}`;
 
-    const totalEnrolled = currentSchedulesList.reduce((sum, s) => sum + s.current_enrolled, 0);
-    if (enrolledEl) enrolledEl.textContent = `${totalEnrolled} inscripto${totalEnrolled !== 1 ? 's' : ''}`;
+    const totalEnrolled = realGroups.reduce((sum, g) => sum + g.members.length, 0);
+    if (enrolledEl) enrolledEl.textContent = `${totalEnrolled} alumno${totalEnrolled !== 1 ? 's' : ''} en grupos`;
 
-    const fullCount = currentSchedulesList.filter(s => s.current_enrolled >= s.max_capacity).length;
-    if (fullEl) fullEl.textContent = `${fullCount} lleno${fullCount !== 1 ? 's' : ''}`;
+    const unassigned = currentGroupsList.find(g => g.isUnassigned);
+    const unassignedCount = unassigned ? unassigned.members.length : 0;
+    if (unassignedEl) unassignedEl.textContent = `${unassignedCount} sin horario`;
 }
 
 window.filterSchedulesByDay = (day) => {
@@ -3844,21 +3844,11 @@ function renderScheduleCards() {
 
     const searchTerm = (document.getElementById('search-schedule-member')?.value || '').toLowerCase();
 
-    const dayOrder = { 'Lunes': 1, 'Martes': 2, 'Miércoles': 3, 'Jueves': 4, 'Viernes': 5, 'Sábado': 6, 'Domingo': 7 };
-
-    // Filter by day
-    let filtered = currentSchedulesList;
+    // Filter by day (grupos que incluyen ese día)
+    let filtered = currentGroupsList;
     if (currentScheduleDayFilter !== 'all') {
-        filtered = filtered.filter(s => s.day_of_week === currentScheduleDayFilter);
+        filtered = filtered.filter(g => g.days.includes(currentScheduleDayFilter));
     }
-
-    // Sort
-    filtered.sort((a, b) => {
-        if (dayOrder[a.day_of_week] !== dayOrder[b.day_of_week]) {
-            return (dayOrder[a.day_of_week] || 99) - (dayOrder[b.day_of_week] || 99);
-        }
-        return a.start_time.localeCompare(b.start_time);
-    });
 
     if (filtered.length === 0) {
         container.innerHTML = `
@@ -3869,49 +3859,27 @@ function renderScheduleCards() {
                     <line x1="8" y1="2" x2="8" y2="6"></line>
                     <line x1="3" y1="10" x2="21" y2="10"></line>
                 </svg>
-                <p>No hay horarios ${currentScheduleDayFilter !== 'all' ? 'para este día' : 'registrados'}.</p>
-                <button class="btn-primary" onclick="openAddScheduleModal()" style="margin-top:10px; padding: 10px 20px;">
-                    <i class="fas fa-plus"></i> Crear Horario
-                </button>
+                <p>No hay grupos ${currentScheduleDayFilter !== 'all' ? 'para este día' : 'todavía'}.</p>
+                <p style="color:#888; font-size:0.85rem; margin-top:6px;">Los grupos se crean automáticamente al asignar días y horario a un alumno.</p>
             </div>
         `;
         return;
     }
 
-    // Group by day for header display
-    let currentDay = '';
     let html = '';
 
-    filtered.forEach(s => {
-        const members = scheduleMembersMap[s.id] || [];
-        const isFull = s.current_enrolled >= s.max_capacity;
-        const fillPercent = s.max_capacity > 0 ? Math.min((s.current_enrolled / s.max_capacity) * 100, 100) : 0;
-
+    filtered.forEach(g => {
         // Filter members by search term
-        let displayMembers = members;
+        let displayMembers = g.members;
         if (searchTerm) {
-            displayMembers = members.filter(m =>
+            displayMembers = g.members.filter(m =>
                 m.first_name.toLowerCase().includes(searchTerm) ||
                 m.last_name.toLowerCase().includes(searchTerm) ||
                 (m.contact || '').toLowerCase().includes(searchTerm)
             );
-            // If searching and no match in this schedule, skip it
+            // If searching and no match in this group, skip it
             if (displayMembers.length === 0) return;
         }
-
-        // Day group header
-        if (s.day_of_week !== currentDay) {
-            currentDay = s.day_of_week;
-            html += `<div class="schedule-day-header">
-                <span class="schedule-day-label">${s.day_of_week}</span>
-                <span class="schedule-day-line"></span>
-            </div>`;
-        }
-
-        // Determine bar color
-        let barColor = '#10b981'; // green
-        if (fillPercent >= 90) barColor = '#ef4444'; // red
-        else if (fillPercent >= 70) barColor = '#f59e0b'; // yellow
 
         // Members list HTML — always visible
         let membersHtml = '';
@@ -3919,16 +3887,13 @@ function renderScheduleCards() {
             membersHtml = `<div class="schedule-members-list">
                 <div class="schedule-no-members">
                     <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><line x1="23" y1="11" x2="17" y2="11"></line></svg>
-                    <span>Sin alumnos inscriptos</span>
+                    <span>Sin alumnos</span>
                 </div>
             </div>`;
         } else {
             membersHtml = `<div class="schedule-members-list">
                 ${displayMembers.map((m, i) => {
                     const isActive = activeMemberIds ? activeMemberIds.has(m.id) : true;
-                    const statusDot = isActive
-                        ? '<span class="member-status-dot active" title="Al día"></span>'
-                        : '<span class="member-status-dot overdue" title="Vencido"></span>';
                     const fullName = `${m.first_name} ${m.last_name}`;
                     const statusText = isActive ? 'Al día' : 'Vencido';
                     const statusClass = isActive ? 'status-text-active' : 'status-text-overdue';
@@ -3957,34 +3922,25 @@ function renderScheduleCards() {
             </div>`;
         }
 
+        const groupIcon = g.isUnassigned
+            ? '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>'
+            : '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>';
+
         html += `
-        <div class="schedule-card ${isFull ? 'schedule-card-full' : ''}">
+        <div class="schedule-card">
             <div class="schedule-card-header">
                 <div class="schedule-card-time">
                     <div class="schedule-time-badge">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
-                        <span>${s.start_time} - ${s.end_time}</span>
+                        ${groupIcon}
+                        <span>${g.name}</span>
                     </div>
                 </div>
                 <div class="schedule-card-meta">
                     <div class="schedule-capacity-info">
                         <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color:#888;margin-right:4px;"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle></svg>
-                        <span class="schedule-enrolled-count ${isFull ? 'text-danger' : ''}">${s.current_enrolled}</span>
-                        <span class="schedule-capacity-sep">/</span>
-                        <span class="schedule-max-capacity">${s.max_capacity}</span>
-                        ${isFull ? '<span class="schedule-full-badge">LLENO</span>' : ''}
+                        <span class="schedule-enrolled-count">${g.members.length}</span>
+                        <span class="schedule-capacity-sep">alumno${g.members.length !== 1 ? 's' : ''}</span>
                     </div>
-                    <div class="schedule-progress-bar">
-                        <div class="schedule-progress-fill" style="width: ${fillPercent}%; background: ${barColor};"></div>
-                    </div>
-                </div>
-                <div class="schedule-card-actions">
-                    <button class="btn-icon-sm" onclick="openEditScheduleModal('${s.id}')" title="Editar horario">
-                        <i class="fas fa-edit"></i>
-                    </button>
-                    <button class="btn-icon-sm text-danger" onclick="deleteSchedule('${s.id}')" title="Eliminar horario">
-                        <i class="fas fa-trash"></i>
-                    </button>
                 </div>
             </div>
             ${membersHtml}
@@ -3994,229 +3950,6 @@ function renderScheduleCards() {
     container.innerHTML = html || `<div class="schedule-empty-state"><p>No se encontraron alumnos con ese nombre.</p></div>`;
 }
 
-function renderSchedulesSelectors() {
-    const selectors = ['new-schedules-selector', 'edit-schedules-selector'];
-
-    const dayOrder = { 'Lunes': 1, 'Martes': 2, 'Miércoles': 3, 'Jueves': 4, 'Viernes': 5, 'Sábado': 6, 'Domingo': 7 };
-    const dayAbbrev = { 'Lunes': 'Lun', 'Martes': 'Mar', 'Miércoles': 'Mié', 'Jueves': 'Jue', 'Viernes': 'Vie', 'Sábado': 'Sáb', 'Domingo': 'Dom' };
-
-    let html = '';
-    if (currentSchedulesList.length === 0) {
-        html = '<p class="text-muted">No hay horarios. Crea uno primero.</p>';
-    } else {
-        // Group schedules by day
-        const grouped = {};
-        currentSchedulesList.forEach(s => {
-            if (!grouped[s.day_of_week]) grouped[s.day_of_week] = [];
-            grouped[s.day_of_week].push(s);
-        });
-
-        // Sort days
-        const sortedDays = Object.keys(grouped).sort((a, b) => (dayOrder[a] || 99) - (dayOrder[b] || 99));
-
-        // Sort time slots within each day
-        sortedDays.forEach(day => {
-            grouped[day].sort((a, b) => a.start_time.localeCompare(b.start_time));
-        });
-
-        // Build day tabs
-        html += '<div class="sched-selector-tabs">';
-        sortedDays.forEach((day, i) => {
-            const hasSelected = grouped[day].some(s => false); // will be updated by JS below
-            html += `<button type="button" class="sched-day-tab ${i === 0 ? 'active' : ''}" data-day="${day}" onclick="switchScheduleDay(this)">${dayAbbrev[day] || day}</button>`;
-        });
-        html += '</div>';
-
-        // Build time slot panels for each day
-        sortedDays.forEach((day, i) => {
-            html += `<div class="sched-day-panel ${i === 0 ? 'active' : ''}" data-day-panel="${day}">`;
-            html += `<div class="sched-day-title"><i class="fas fa-calendar-day"></i> ${day}</div>`;
-            grouped[day].forEach(s => {
-                const isFull = s.current_enrolled >= s.max_capacity;
-                const fullClass = isFull ? 'sched-slot-full' : '';
-                const capacityClass = isFull ? 'text-danger' : (s.current_enrolled / s.max_capacity >= 0.8 ? 'text-warning' : 'text-success');
-                const pct = Math.round((s.current_enrolled / s.max_capacity) * 100);
-                html += `<label class="sched-time-slot ${fullClass}">
-                    <span class="sched-slot-left">
-                        <input type="checkbox" value="${s.id}" ${isFull ? 'disabled' : ''}>
-                        <span class="sched-slot-time">
-                            <i class="fas fa-clock"></i> ${s.start_time} - ${s.end_time}
-                        </span>
-                    </span>
-                    <span class="sched-slot-right">
-                        <span class="sched-capacity ${capacityClass}">${s.current_enrolled}/${s.max_capacity}</span>
-                        <div class="sched-capacity-bar"><div class="sched-capacity-fill ${capacityClass}" style="width:${pct}%"></div></div>
-                    </span>
-                </label>`;
-            });
-            html += '</div>';
-        });
-    }
-
-    selectors.forEach(id => {
-        const el = document.getElementById(id);
-        if (el) el.innerHTML = html;
-    });
-
-    // After rendering, update tab badges to show selected count
-    updateScheduleTabBadges();
-}
-
-// Switch day tab in schedule selector
-window.switchScheduleDay = function(btn) {
-    const container = btn.closest('.schedules-selector') || btn.parentElement.parentElement;
-    const day = btn.dataset.day;
-
-    // Toggle all tabs in this container
-    container.querySelectorAll('.sched-day-tab').forEach(t => t.classList.remove('active'));
-    btn.classList.add('active');
-
-    // Toggle panels
-    container.querySelectorAll('.sched-day-panel').forEach(p => {
-        p.classList.toggle('active', p.dataset.dayPanel === day);
-    });
-};
-
-// Update badge counts on day tabs when checkboxes change
-function updateScheduleTabBadges() {
-    const selectors = ['new-schedules-selector', 'edit-schedules-selector'];
-    selectors.forEach(id => {
-        const el = document.getElementById(id);
-        if (!el) return;
-
-        // Listen for checkbox changes
-        el.addEventListener('change', function(e) {
-            if (e.target.type === 'checkbox') {
-                updateTabBadgesForContainer(el);
-            }
-        });
-
-        // Initial update
-        updateTabBadgesForContainer(el);
-    });
-}
-
-function updateTabBadgesForContainer(container) {
-    container.querySelectorAll('.sched-day-tab').forEach(tab => {
-        const day = tab.dataset.day;
-        const panel = container.querySelector(`.sched-day-panel[data-day-panel="${day}"]`);
-        if (!panel) return;
-
-        const checkedCount = panel.querySelectorAll('input[type="checkbox"]:checked').length;
-
-        // Remove existing badge
-        let badge = tab.querySelector('.sched-tab-badge');
-        if (checkedCount > 0) {
-            if (!badge) {
-                badge = document.createElement('span');
-                badge.className = 'sched-tab-badge';
-                tab.appendChild(badge);
-            }
-            badge.textContent = checkedCount;
-            tab.classList.add('has-selected');
-        } else {
-            if (badge) badge.remove();
-            tab.classList.remove('has-selected');
-        }
-    });
-}
-
-window.openAddScheduleModal = () => {
-    document.getElementById('add-schedule-form').reset();
-    document.getElementById('add-schedule-modal').classList.remove('hidden');
-};
-
-window.closeAddScheduleModal = () => {
-    document.getElementById('add-schedule-modal').classList.add('hidden');
-};
-
-async function handleAddSchedule(e) {
-    e.preventDefault();
-    const day_of_week = document.getElementById('schedule-day').value;
-    const start_time = document.getElementById('schedule-start').value;
-    const end_time = document.getElementById('schedule-end').value;
-    const max_capacity = parseInt(document.getElementById('schedule-capacity').value) || 15;
-
-    const submitBtn = document.querySelector('#add-schedule-form button[type="submit"]');
-    const originalText = submitBtn.textContent;
-    submitBtn.disabled = true;
-    submitBtn.textContent = 'Guardando...';
-
-    const { error } = await supabase.from('schedules').insert([{
-        day_of_week, start_time, end_time, max_capacity
-    }]);
-
-    submitBtn.disabled = false;
-    submitBtn.textContent = originalText;
-
-    if (error) {
-        ui.alert('Error al agregar horario: ' + error.message, 'error');
-    } else {
-        closeAddScheduleModal();
-        ui.alert('Horario agregado correctamente.', 'success');
-        loadSchedules();
-    }
-}
-
-window.openEditScheduleModal = (id) => {
-    const s = currentSchedulesList.find(x => x.id === id);
-    if (!s) return;
-
-    document.getElementById('edit-schedule-id').value = s.id;
-    document.getElementById('edit-schedule-day').value = s.day_of_week;
-    document.getElementById('edit-schedule-start').value = s.start_time;
-    document.getElementById('edit-schedule-end').value = s.end_time;
-    document.getElementById('edit-schedule-capacity').value = s.max_capacity;
-
-    document.getElementById('edit-schedule-modal').classList.remove('hidden');
-};
-
-window.closeEditScheduleModal = () => {
-    document.getElementById('edit-schedule-modal').classList.add('hidden');
-};
-
-async function handleEditSchedule(e) {
-    e.preventDefault();
-    const id = document.getElementById('edit-schedule-id').value;
-    const day_of_week = document.getElementById('edit-schedule-day').value;
-    const start_time = document.getElementById('edit-schedule-start').value;
-    const end_time = document.getElementById('edit-schedule-end').value;
-    const max_capacity = parseInt(document.getElementById('edit-schedule-capacity').value) || 15;
-
-    const submitBtn = document.querySelector('#edit-schedule-form button[type="submit"]');
-    const originalText = submitBtn.textContent;
-    submitBtn.disabled = true;
-    submitBtn.textContent = 'Actualizando...';
-
-    const { error } = await supabase.from('schedules').update({
-        day_of_week, start_time, end_time, max_capacity
-    }).eq('id', id);
-
-    submitBtn.disabled = false;
-    submitBtn.textContent = originalText;
-
-    if (error) {
-        ui.alert('Error al actualizar horario: ' + error.message, 'error');
-    } else {
-        closeEditScheduleModal();
-        ui.alert('Horario actualizado correctamente.', 'success');
-        loadSchedules();
-        loadMembers();
-    }
-}
-
-window.deleteSchedule = async (id) => {
-    const confirmed = await ui.confirm('¿Estás seguro de que quieres eliminar este horario? Se desvinculará de todos los alumnos.');
-    if (!confirmed) return;
-
-    const { error } = await supabase.from('schedules').delete().eq('id', id);
-
-    if (error) {
-        ui.alert('Error al eliminar: ' + error.message, 'error');
-    } else {
-        ui.alert('Horario eliminado correctamente.', 'success');
-        loadSchedules();
-        loadMembers();
-    }
-};
+// NOTA: La gestión manual de horarios (tablas schedules/member_schedules) fue
+// reemplazada por grupos automáticos generados desde los datos de cada alumno.
 
