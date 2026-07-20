@@ -3135,15 +3135,23 @@
         justify-content: center;
     }
 
-    .dsp-pill {
+    /* NOTA: los selectores llevan el prefijo .day-schedule-picker para ganar
+       en especificidad a las reglas genéricas ".modal button" / ".modal input",
+       que de lo contrario pintan las píldoras de amarillo siempre. */
+
+    .day-schedule-picker .dsp-pill {
         width: 44px;
         height: 44px;
+        flex: 0 0 44px;
+        padding: 0;
+        margin: 0;
         border-radius: 50%;
         border: 2px solid #3a3a3a;
         background: rgba(255, 255, 255, 0.03);
         color: #777;
         font-size: 0.95rem;
         font-weight: 700;
+        text-transform: none;
         cursor: pointer;
         transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
         display: flex;
@@ -3153,14 +3161,15 @@
         position: relative;
     }
 
-    .dsp-pill:hover {
+    .day-schedule-picker .dsp-pill:hover {
         border-color: var(--primary);
         color: var(--primary);
+        background: rgba(255, 214, 0, 0.06);
         transform: scale(1.1);
         box-shadow: 0 0 16px rgba(255, 214, 0, 0.15);
     }
 
-    .dsp-pill.active {
+    .day-schedule-picker .dsp-pill.active {
         background: var(--primary);
         border-color: var(--primary);
         color: #000;
@@ -3168,37 +3177,9 @@
         transform: scale(1.05);
     }
 
-    .dsp-pill.active:hover {
+    .day-schedule-picker .dsp-pill.active:hover {
+        background: var(--primary);
         transform: scale(1.12);
-    }
-
-    /* Time Slots Container */
-    .dsp-time-slots {
-        display: flex;
-        flex-direction: column;
-        gap: 6px;
-    }
-
-    /* Time Row */
-    .dsp-time-row {
-        display: flex;
-        align-items: center;
-        gap: 10px;
-        padding: 8px 12px;
-        background: rgba(255, 255, 255, 0.03);
-        border: 1px solid #2a2a2a;
-        border-radius: 10px;
-        animation: dspSlideIn 0.25s cubic-bezier(0.175, 0.885, 0.32, 1.275);
-    }
-
-    @keyframes dspSlideIn {
-        from { opacity: 0; transform: translateY(-8px) scale(0.95); }
-        to { opacity: 1; transform: translateY(0) scale(1); }
-    }
-
-    @keyframes dspSlideOut {
-        from { opacity: 1; transform: translateY(0) scale(1); }
-        to { opacity: 0; transform: translateY(-8px) scale(0.95); }
     }
 
     .dsp-time-label {
@@ -3208,36 +3189,6 @@
         min-width: 32px;
         text-align: center;
         letter-spacing: 0.5px;
-    }
-
-    .dsp-time-select {
-        flex: 1;
-        padding: 8px 12px;
-        background: #111;
-        border: 1px solid #333;
-        color: var(--text);
-        border-radius: 8px;
-        font-size: 0.85rem;
-        font-weight: 500;
-        cursor: pointer;
-        transition: border-color 0.2s;
-        appearance: none;
-        -webkit-appearance: none;
-        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='%23FFD700' stroke-width='2.5'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
-        background-repeat: no-repeat;
-        background-position: right 10px center;
-        padding-right: 28px;
-    }
-
-    .dsp-time-select:focus {
-        outline: none;
-        border-color: var(--primary);
-        box-shadow: 0 0 8px rgba(255, 214, 0, 0.12);
-    }
-
-    .dsp-time-select option {
-        background: #1a1a1a;
-        color: var(--text);
     }
 
     /* =======================================
@@ -3299,7 +3250,7 @@
        FREE-TEXT SCHEDULE INPUT (Day Picker)
        ======================================= */
 
-    .dsp-time-free {
+    .day-schedule-picker .dsp-time-free {
         display: flex;
         align-items: center;
         gap: 10px;
@@ -3310,13 +3261,15 @@
         margin-top: 4px;
     }
 
-    .dsp-time-free .dsp-time-label {
+    .day-schedule-picker .dsp-time-free .dsp-time-label {
         min-width: 56px;
     }
 
-    .dsp-time-input {
+    .day-schedule-picker .dsp-time-input {
         flex: 1;
+        width: auto;
         padding: 8px 12px;
+        margin: 0;
         background: #111;
         border: 1px solid #333;
         color: var(--text);
@@ -3326,12 +3279,12 @@
         transition: border-color 0.2s;
     }
 
-    .dsp-time-input:focus {
+    .day-schedule-picker .dsp-time-input:focus {
         outline: none;
         border-color: var(--primary);
         box-shadow: 0 0 8px rgba(255, 214, 0, 0.12);
     }
 
-    .dsp-time-input::placeholder {
+    .day-schedule-picker .dsp-time-input::placeholder {
         color: #555;
     }
